@@ -20,6 +20,7 @@
 - Active bed cards now show watering progress, remaining time and an `Abbrechen` action.
 - Irrigation locking is global again: only one pump can run at a time.
 - MQTT publishing now includes irrigation remaining/elapsed seconds, status, cancellation and automatic watering block topics.
+- Reworked the dashboard layout to match the provided clean card-based reference design more closely.
 
 ### Implementation Notes
 - Mock mode defaults to `HARDWARE_MOCK=true` so development does not require Raspberry Pi hardware.

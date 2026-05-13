@@ -1,0 +1,9 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+aquapatch.db
+backend/aquapatch.db
+node_modules/
+dist/
+.env

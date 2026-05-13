@@ -7,6 +7,10 @@
 - Optional MQTT service with AquaPatch topic structure for moisture, pump and system state publishing.
 - Vue 3, Vite, TypeScript and TailwindCSS dashboard with bed cards, moisture reads, manual watering and bed editing.
 - Raspberry Pi setup notes, environment example and backend systemd unit.
+- Root-level `mock-dev.sh` script to start the mock backend and frontend together.
+
+### Changed
+- Simplified the dashboard so bed and app settings open in overlays instead of appearing permanently on the main page.
 
 ### Implementation Notes
 - Mock mode defaults to `HARDWARE_MOCK=true` so development does not require Raspberry Pi hardware.

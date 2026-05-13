@@ -14,7 +14,7 @@ The current implementation includes a FastAPI backend, SQLite database, Vue 3 fr
 - Manual watering endpoint with maximum duration and one-pump-at-a-time lock.
 - Relay cleanup on shutdown and `finally` pump-off behavior after watering.
 - Optional MQTT publishing for moisture, pump and system state.
-- Vue dashboard with bed cards, system status, manual watering, moisture reads and add/edit form.
+- Vue dashboard with clean bed cards, compact app controls, manual watering, moisture reads and modal settings for beds and app status.
 
 Planned:
 - Automatic watering schedules.
@@ -78,6 +78,21 @@ API docs are available at:
 - `http://localhost:8000/docs`
 - `http://localhost:8000/redoc`
 
+## Quick Mock Start
+
+From the project root, start the backend in mock mode and the Vite frontend together:
+
+```bash
+./mock-dev.sh
+```
+
+This starts:
+
+- Backend: `http://127.0.0.1:8000`
+- Frontend: `http://127.0.0.1:5173`
+
+Use this for normal local development. Starting only `npm run dev` inside `frontend/` launches the UI without the FastAPI API, so the dashboard cannot load bed data.
+
 ## Frontend Setup
 
 ```bash
@@ -91,6 +106,13 @@ The Vite dev server proxies `/api` to `http://localhost:8000`. Build production 
 ```bash
 npm run build
 ```
+
+Dashboard usage:
+
+- Use the `+` button in the header to add a new bed.
+- Use the gear in a bed card to edit relay pin, ADS channel, watering duration, enabled state and moisture calibration.
+- Use the app gear in the header to view backend, mock, MQTT and maximum watering status.
+- Bed and app settings open as overlays, keeping the main dashboard focused on current bed state.
 
 ## Environment Variables
 

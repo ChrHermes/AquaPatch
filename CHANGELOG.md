@@ -8,12 +8,16 @@
 - Vue 3, Vite, TypeScript and TailwindCSS dashboard with bed cards, moisture reads, manual watering and bed editing.
 - Raspberry Pi setup notes, environment example and backend systemd unit.
 - Root-level `mock-dev.sh` script to start the mock backend and frontend together.
+- Confirmed bed deletion from the bed settings overlay.
 
 ### Changed
 - Simplified the dashboard so bed and app settings open in overlays instead of appearing permanently on the main page.
+- Replaced symbol/emoji-style dashboard icons with inline Material Design SVG icons.
+- Moved calibration values out of the dashboard cards and kept them in each bed's settings overlay.
+- Changed irrigation locking from global single-pump operation to per-bed locking so separate beds may water in parallel.
 
 ### Implementation Notes
 - Mock mode defaults to `HARDWARE_MOCK=true` so development does not require Raspberry Pi hardware.
 - Hardware access is isolated in `backend/app/hardware` and service classes; API routes do not toggle GPIO directly.
 - Moisture percentage maps each bed's dry calibration value to 0 percent and wet calibration value to 100 percent, including inverted raw ranges.
-- Only one pump may run at a time because the irrigation service uses an async lock around watering.
+- Each bed has its own running-state lock; this prevents duplicate starts for the same bed while allowing separate pump channels to run together.

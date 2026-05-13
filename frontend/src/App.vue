@@ -12,6 +12,7 @@ const error = ref('')
 const wateringIds = ref<Set<number>>(new Set())
 const editingId = ref<number | null>(null)
 const activeModal = ref<'bed' | 'app' | null>(null)
+const confirmingDelete = ref(false)
 
 const emptyForm = (): BedPayload => ({
   name: '',
@@ -34,6 +35,7 @@ function assignForm(values: BedPayload) {
 
 function resetForm() {
   editingId.value = null
+  confirmingDelete.value = false
   assignForm(emptyForm())
 }
 
@@ -130,6 +132,21 @@ async function saveBed() {
   }
 }
 
+async function deleteCurrentBed() {
+  if (!editingId.value) return
+  saving.value = true
+  error.value = ''
+  try {
+    await api.deleteBed(editingId.value)
+    closeModal()
+    await refresh()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Löschen fehlgeschlagen'
+  } finally {
+    saving.value = false
+  }
+}
+
 onMounted(refresh)
 </script>
 
@@ -146,28 +163,34 @@ onMounted(refresh)
       </div>
       <div class="flex shrink-0 gap-2">
         <button
-          class="grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-xl font-semibold text-slate-800 shadow-sm hover:border-leaf hover:text-leaf"
+          class="grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-sm hover:border-leaf hover:text-leaf"
           title="Neues Beet"
           aria-label="Neues Beet"
           @click="newBed"
         >
-          +
+          <svg class="h-5 w-5" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2Z" />
+          </svg>
         </button>
         <button
-          class="grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-lg text-slate-800 shadow-sm hover:border-leaf hover:text-leaf"
+          class="grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-sm hover:border-leaf hover:text-leaf"
           title="App-Einstellungen"
           aria-label="App-Einstellungen"
           @click="activeModal = 'app'"
         >
-          ⚙
+          <svg class="h-5 w-5" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+            <path d="m19.43 12.98.04-.32.03-.66-.03-.66-.04-.32 2.11-1.65-2-3.46-2.49 1a7.3 7.3 0 0 0-1.14-.66L15.5 3h-4l-.41 3.25c-.4.17-.78.39-1.14.66l-2.49-1-2 3.46 2.11 1.65-.04.32-.03.66.03.66.04.32-2.11 1.65 2 3.46 2.49-1c.36.27.74.49 1.14.66l.41 3.25h4l.41-3.25c.4-.17.78-.39 1.14-.66l2.49 1 2-3.46-2.11-1.65ZM13.5 19h-2l-.31-2.48-.58-.24a5.42 5.42 0 0 1-1.44-.83l-.5-.38-1.9.76-1-1.74 1.62-1.27-.08-.62A6.25 6.25 0 0 1 7.25 12c0-.27.02-.54.06-.8l.08-.62-1.62-1.27 1-1.74 1.9.76.5-.38c.43-.33.91-.61 1.44-.83l.58-.24L11.5 5h2l.31 2.48.58.24c.53.22 1.01.5 1.44.83l.5.38 1.9-.76 1 1.74-1.62 1.27.08.62c.04.26.06.53.06.8s-.02.54-.06.8l-.08.62 1.62 1.27-1 1.74-1.9-.76-.5.38c-.43.33-.91.61-1.44.83l-.58.24L13.5 19Zm-1-10a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" />
+          </svg>
         </button>
         <button
-          class="grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-lg text-slate-800 shadow-sm hover:border-leaf hover:text-leaf"
+          class="grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-slate-800 shadow-sm hover:border-leaf hover:text-leaf"
           title="Aktualisieren"
           aria-label="Aktualisieren"
           @click="refresh"
         >
-          ↻
+          <svg class="h-5 w-5" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.45 5h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h8V3l-3.35 3.35Z" />
+          </svg>
         </button>
       </div>
     </header>
@@ -194,7 +217,9 @@ onMounted(refresh)
               aria-label="Beet-Einstellungen"
               @click="editBed(bed)"
             >
-              ⚙
+              <svg class="h-5 w-5" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+                <path d="m19.43 12.98.04-.32.03-.66-.03-.66-.04-.32 2.11-1.65-2-3.46-2.49 1a7.3 7.3 0 0 0-1.14-.66L15.5 3h-4l-.41 3.25c-.4.17-.78.39-1.14.66l-2.49-1-2 3.46 2.11 1.65-.04.32-.03.66.03.66.04.32-2.11 1.65 2 3.46 2.49-1c.36.27.74.49 1.14.66l.41 3.25h4l.41-3.25c.4-.17.78-.39 1.14-.66l2.49 1 2-3.46-2.11-1.65ZM13.5 19h-2l-.31-2.48-.58-.24a5.42 5.42 0 0 1-1.44-.83l-.5-.38-1.9.76-1-1.74 1.62-1.27-.08-.62A6.25 6.25 0 0 1 7.25 12c0-.27.02-.54.06-.8l.08-.62-1.62-1.27 1-1.74 1.9.76.5-.38c.43-.33.91-.61 1.44-.83l.58-.24L11.5 5h2l.31 2.48.58.24c.53.22 1.01.5 1.44.83l.5.38 1.9-.76 1 1.74-1.62 1.27.08.62c.04.26.06.53.06.8s-.02.54-.06.8l-.08.62 1.62 1.27-1 1.74-1.9-.76-.5.38c-.43.33-.91.61-1.44.83l-.58.24L13.5 19Zm-1-10a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" />
+              </svg>
             </button>
           </div>
         </div>
@@ -208,7 +233,6 @@ onMounted(refresh)
         <dl class="mb-5 grid grid-cols-2 gap-3 text-sm">
           <div class="rounded-md bg-slate-50 p-3"><dt class="text-slate-500">Pumpe</dt><dd class="font-semibold">{{ bed.pump_running || wateringIds.has(bed.id) ? 'läuft' : 'aus' }}</dd></div>
           <div class="rounded-md bg-slate-50 p-3"><dt class="text-slate-500">Dauer</dt><dd class="font-semibold">{{ bed.watering_seconds }} s</dd></div>
-          <div class="rounded-md bg-slate-50 p-3"><dt class="text-slate-500">Kalibrierung</dt><dd class="font-semibold">{{ bed.moisture_dry_raw }} / {{ bed.moisture_wet_raw }}</dd></div>
           <div class="rounded-md bg-slate-50 p-3"><dt class="text-slate-500">Status</dt><dd class="font-semibold">{{ bed.enabled ? 'aktiv' : 'deaktiviert' }}</dd></div>
         </dl>
         <div class="flex flex-wrap gap-2">
@@ -228,12 +252,14 @@ onMounted(refresh)
             <h2 class="text-xl font-semibold">{{ activeModal === 'bed' ? modalTitle : 'App-Einstellungen' }}</h2>
           </div>
           <button
-            class="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-xl text-slate-700 hover:bg-slate-100"
+            class="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-700 hover:bg-slate-100"
             title="Schliessen"
             aria-label="Schliessen"
             @click="closeModal"
           >
-            ×
+            <svg class="h-5 w-5" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3 1.42 1.42Z" />
+            </svg>
           </button>
         </div>
 
@@ -242,14 +268,54 @@ onMounted(refresh)
           <label class="text-sm font-medium">GPIO<input v-model.number="form.relay_pin" required type="number" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
           <label class="text-sm font-medium">ADS-Kanal<input v-model.number="form.ads_channel" required min="0" max="3" type="number" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
           <label class="text-sm font-medium">Bewässerungsdauer<input v-model.number="form.watering_seconds" required min="1" type="number" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
+          <div class="border-t border-slate-100 pt-4 sm:col-span-2">
+            <h3 class="font-semibold text-slate-950">Kalibrierung</h3>
+          </div>
           <label class="text-sm font-medium">Trocken raw<input v-model.number="form.moisture_dry_raw" required type="number" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
           <label class="text-sm font-medium">Nass raw<input v-model.number="form.moisture_wet_raw" required type="number" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
           <label class="flex items-center gap-2 text-sm font-medium sm:col-span-2">
             <input v-model="form.enabled" type="checkbox" class="h-4 w-4 rounded" /> Aktiv
           </label>
-          <div class="flex justify-end gap-2 sm:col-span-2">
+
+          <div v-if="isEditing" class="sm:col-span-2">
+            <div v-if="confirmingDelete" class="rounded-md border border-red-200 bg-red-50 p-4">
+              <p class="font-semibold text-red-900">Beet wirklich löschen?</p>
+              <p class="mt-1 text-sm text-red-800">Messwerte und Bewässerungsläufe dieses Beets werden ebenfalls entfernt.</p>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-2 rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800"
+                  :disabled="saving"
+                  @click="deleteCurrentBed"
+                >
+                  <svg class="h-4 w-4" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M6 19c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V7H6v12ZM8 9h8v10H8V9Zm7.5-5-1-1h-5l-1 1H5v2h14V4h-3.5Z" />
+                  </svg>
+                  Endgültig löschen
+                </button>
+                <button type="button" class="rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-800" @click="confirmingDelete = false">
+                  Abbrechen
+                </button>
+              </div>
+            </div>
+            <button
+              v-else
+              type="button"
+              class="inline-flex items-center gap-2 rounded-md border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+              @click="confirmingDelete = true"
+            >
+              <svg class="h-4 w-4" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 19c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V7H6v12ZM8 9h8v10H8V9Zm7.5-5-1-1h-5l-1 1H5v2h14V4h-3.5Z" />
+              </svg>
+              Beet löschen
+            </button>
+          </div>
+
+          <div v-if="!confirmingDelete" class="flex justify-end gap-2 sm:col-span-2">
             <button type="button" class="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold" @click="closeModal">Abbrechen</button>
-            <button class="rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white" :disabled="saving">{{ saving ? 'Speichert...' : 'Speichern' }}</button>
+            <button class="rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white" :disabled="saving">
+              {{ saving ? 'Speichert...' : 'Speichern' }}
+            </button>
           </div>
         </form>
 

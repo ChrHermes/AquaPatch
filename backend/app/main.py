@@ -14,9 +14,9 @@ from app.services.registry import irrigation_service, moisture_service, mqtt_ser
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 DEFAULT_BEDS = [
-    {"name": "Hochbeet 1", "relay_pin": 17, "ads_channel": 0, "watering_seconds": 120},
-    {"name": "Tomaten", "relay_pin": 27, "ads_channel": 1, "watering_seconds": 120},
-    {"name": "Blumen", "relay_pin": 22, "ads_channel": 2, "watering_seconds": 90},
+    {"name": "Tomaten", "relay_pin": 17, "ads_channel": 0, "watering_seconds": 120},
+    {"name": "Hortensien 1", "relay_pin": 27, "ads_channel": 1, "watering_seconds": 90},
+    {"name": "Hortensien 2", "relay_pin": 22, "ads_channel": 2, "watering_seconds": 90},
 ]
 
 

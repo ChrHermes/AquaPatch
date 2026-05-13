@@ -14,11 +14,11 @@ class IrrigationService:
         self.settings = settings
         self.relay_service = relay_service
         self.mqtt = mqtt
-        self._lock = asyncio.Lock()
-        self._running_bed_id: int | None = None
+        self._state_lock = asyncio.Lock()
+        self._running_bed_ids: set[int] = set()
 
     def is_any_irrigation_running(self) -> bool:
-        return self._lock.locked()
+        return bool(self._running_bed_ids)
 
     async def water_bed(
         self,
@@ -32,8 +32,11 @@ class IrrigationService:
             raise ValueError("Beet wurde nicht gefunden")
         if not bed.enabled:
             raise ValueError("Beet ist deaktiviert")
-        if self._lock.locked():
-            raise RuntimeError("Es läuft bereits eine Bewässerung")
+
+        async with self._state_lock:
+            if bed.id in self._running_bed_ids:
+                raise RuntimeError("Dieses Beet wird bereits bewässert")
+            self._running_bed_ids.add(bed.id)
 
         requested_duration = duration_seconds or bed.watering_seconds
         duration = min(requested_duration, self.settings.max_watering_seconds)
@@ -46,37 +49,41 @@ class IrrigationService:
             success=False,
             message="Bewässerung gestartet",
         )
-        db.add(run)
-        db.commit()
-        db.refresh(run)
+        run_persisted = False
 
-        async with self._lock:
-            self._running_bed_id = bed.id
-            try:
-                self.relay_service.turn_on(bed)
-                if self.mqtt:
-                    self.mqtt.publish_pump_state(bed, "ON")
-                await asyncio.sleep(duration)
-                run.success = True
-                run.message = "Bewässerung abgeschlossen"
-            except Exception as exc:
-                run.success = False
-                run.message = f"Bewässerung fehlgeschlagen: {exc}"
-                raise
-            finally:
-                self.relay_service.turn_off(bed)
-                if self.mqtt:
-                    self.mqtt.publish_pump_state(bed, "OFF")
-                    self.mqtt.publish_irrigation_run(bed, run)
-                self._running_bed_id = None
+        try:
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            run_persisted = True
+            self.relay_service.turn_on(bed)
+            if self.mqtt:
+                self.mqtt.publish_pump_state(bed, "ON")
+            await asyncio.sleep(duration)
+            run.success = True
+            run.message = "Bewässerung abgeschlossen"
+        except Exception as exc:
+            run.success = False
+            run.message = f"Bewässerung fehlgeschlagen: {exc}"
+            raise
+        finally:
+            self.relay_service.turn_off(bed)
+            async with self._state_lock:
+                self._running_bed_ids.discard(bed.id)
+            if self.mqtt:
+                self.mqtt.publish_pump_state(bed, "OFF")
+                self.mqtt.publish_irrigation_run(bed, run)
+            if run_persisted:
                 run.finished_at = datetime.utcnow()
                 db.add(run)
                 db.commit()
                 db.refresh(run)
+            else:
+                db.rollback()
         return run
 
     def ensure_all_pumps_off(self) -> None:
         self.relay_service.turn_all_off()
 
     def is_bed_running(self, bed: Bed) -> bool:
-        return self._running_bed_id == bed.id
+        return bed.id in self._running_bed_ids

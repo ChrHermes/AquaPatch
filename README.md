@@ -11,10 +11,10 @@ The current implementation includes a FastAPI backend, SQLite database, Vue 3 fr
 - CRUD API for beds and calibration values.
 - Mock ADS1115 readings and mock relay actions for local development.
 - Moisture percentage calculation from per-bed dry/wet raw calibration.
-- Manual watering endpoint with maximum duration and one-pump-at-a-time lock.
+- Manual watering endpoint with maximum duration and a per-bed lock, so the same bed cannot be started twice while separate beds can run in parallel.
 - Relay cleanup on shutdown and `finally` pump-off behavior after watering.
 - Optional MQTT publishing for moisture, pump and system state.
-- Vue dashboard with clean bed cards, compact app controls, manual watering, moisture reads and modal settings for beds and app status.
+- Vue dashboard with clean bed cards, Material Design SVG icons, compact app controls, manual watering, moisture reads and modal settings for beds and app status.
 
 Planned:
 - Automatic watering schedules.
@@ -111,6 +111,7 @@ Dashboard usage:
 
 - Use the `+` button in the header to add a new bed.
 - Use the gear in a bed card to edit relay pin, ADS channel, watering duration, enabled state and moisture calibration.
+- Use the delete action inside a bed's settings dialog to remove a bed after confirmation.
 - Use the app gear in the header to view backend, mock, MQTT and maximum watering status.
 - Bed and app settings open as overlays, keeping the main dashboard focused on current bed state.
 
@@ -235,7 +236,8 @@ Home Assistant MQTT Discovery is not implemented yet.
 [ ] each relay can be switched individually
 [ ] relay active-low setting is correct
 [ ] each pump starts only for its assigned bed
-[ ] only one pump can run at a time
+[ ] the same bed cannot be started twice at the same time
+[ ] separate beds can run at the same time if the power supply and wiring are rated for it
 [ ] pump stops after configured duration
 [ ] pump stops after API error or interruption
 [ ] frontend shows current bed states

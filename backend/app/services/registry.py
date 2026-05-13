@@ -13,3 +13,4 @@ relay_service = RelayService(settings)
 moisture_service = MoistureService(Ads1115Reader(settings.hardware_mock), mqtt_service)
 irrigation_service = IrrigationService(settings, relay_service, mqtt_service)
 system_service = SystemService(settings)
+mqtt_service.stop_command_handler = irrigation_service.stop_bed

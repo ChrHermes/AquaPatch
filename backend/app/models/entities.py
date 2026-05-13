@@ -16,6 +16,8 @@ class Bed(Base):
     moisture_dry_raw: Mapped[int] = mapped_column(Integer, default=26000, nullable=False)
     moisture_wet_raw: Mapped[int] = mapped_column(Integer, default=12000, nullable=False)
     watering_seconds: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
+    auto_watering_block_after_cancel_seconds: Mapped[int] = mapped_column(Integer, default=3600, nullable=False)
+    last_cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -47,6 +49,7 @@ class IrrigationRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     trigger: Mapped[str] = mapped_column(String(40), default="manual", nullable=False)
     success: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="completed", nullable=False)
     message: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
     bed: Mapped[Bed] = relationship(back_populates="irrigation_runs")

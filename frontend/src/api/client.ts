@@ -1,4 +1,4 @@
-import type { Bed, BedPayload, IrrigationRun, MoistureReading, SystemStatus } from '../types/api'
+import type { Bed, BedPayload, IrrigationCurrent, IrrigationRun, MoistureReading, SystemStatus } from '../types/api'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -30,5 +30,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ duration_seconds, trigger: 'manual' })
     }),
+  stopWater: (id: number) => request<{ stopped: boolean; message: string }>(`/api/beds/${id}/water/stop`, { method: 'POST' }),
+  currentIrrigation: () => request<IrrigationCurrent>('/api/irrigation/current'),
   status: () => request<SystemStatus>('/api/system/status')
 }

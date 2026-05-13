@@ -7,11 +7,13 @@ The current implementation includes a FastAPI backend, SQLite database, Vue 3 fr
 ## Current Features
 
 - FastAPI REST API with SQLite and SQLAlchemy 2.x.
-- Default beds on first startup: `Hochbeet 1`, `Tomaten`, `Blumen`.
+- Default beds on first startup: `Tomaten`, `Hortensien 1`, `Hortensien 2`.
 - CRUD API for beds and calibration values.
 - Mock ADS1115 readings and mock relay actions for local development.
 - Moisture percentage calculation from per-bed dry/wet raw calibration.
-- Manual watering endpoint with maximum duration and a per-bed lock, so the same bed cannot be started twice while separate beds can run in parallel.
+- Manual watering endpoint with maximum duration, visible remaining runtime and manual cancellation.
+- Global irrigation lock: only one pump runs at a time.
+- Automatic watering pause after manual cancellation, configurable per bed.
 - Relay cleanup on shutdown and `finally` pump-off behavior after watering.
 - Optional MQTT publishing for moisture, pump and system state.
 - Vue dashboard with clean bed cards, Material Design SVG icons, compact app controls, manual watering, moisture reads and modal settings for beds and app status.
@@ -111,9 +113,11 @@ Dashboard usage:
 
 - Use the `+` button in the header to add a new bed.
 - Use the gear in a bed card to edit relay pin, ADS channel, watering duration, enabled state and moisture calibration.
+- Set `Automatik-Pause nach Abbruch` in minutes inside each bed's settings dialog.
 - Use the delete action inside a bed's settings dialog to remove a bed after confirmation.
 - Use the app gear in the header to view backend, mock, MQTT and maximum watering status.
 - Bed and app settings open as overlays, keeping the main dashboard focused on current bed state.
+- During watering, the active bed card shows remaining time, total planned duration, a progress bar and an `Abbrechen` button.
 
 ## Environment Variables
 
@@ -149,6 +153,9 @@ Moisture:
 Irrigation:
 
 - `POST /api/beds/{bed_id}/water`
+- `POST /api/beds/{bed_id}/water/stop`
+- `GET /api/irrigation/current`
+- `POST /api/irrigation/current/stop`
 - `GET /api/irrigation/runs`
 - `GET /api/irrigation/runs?bed_id=1&limit=50`
 
@@ -208,10 +215,23 @@ garden_irrigation/bed/{bed_id}/moisture_raw
 garden_irrigation/bed/{bed_id}/moisture_voltage
 garden_irrigation/bed/{bed_id}/pump/state
 garden_irrigation/bed/{bed_id}/irrigation/last_run
+garden_irrigation/bed/{bed_id}/irrigation/remaining_seconds
+garden_irrigation/bed/{bed_id}/irrigation/elapsed_seconds
+garden_irrigation/bed/{bed_id}/irrigation/status
+garden_irrigation/bed/{bed_id}/irrigation/cancelled
+garden_irrigation/bed/{bed_id}/auto_watering/blocked_until
+garden_irrigation/bed/{bed_id}/auto_watering/block_remaining_seconds
 garden_irrigation/bed/{bed_id}/status
 garden_irrigation/system/status
 garden_irrigation/system/hardware_mock
 garden_irrigation/system/mqtt/status
+```
+
+MQTT command topics:
+
+```text
+garden_irrigation/bed/{bed_id}/water/set
+garden_irrigation/bed/{bed_id}/water/stop/set
 ```
 
 Example Home Assistant YAML sensor:
@@ -236,10 +256,13 @@ Home Assistant MQTT Discovery is not implemented yet.
 [ ] each relay can be switched individually
 [ ] relay active-low setting is correct
 [ ] each pump starts only for its assigned bed
-[ ] the same bed cannot be started twice at the same time
-[ ] separate beds can run at the same time if the power supply and wiring are rated for it
+[ ] only one pump can run at a time
+[ ] active watering shows remaining runtime in the frontend
+[ ] active watering can be cancelled from the frontend
 [ ] pump stops after configured duration
 [ ] pump stops after API error or interruption
+[ ] pump stops after manual cancellation
+[ ] automatic watering is blocked for a bed after manual cancellation
 [ ] frontend shows current bed states
 [ ] manual watering works from frontend
 [ ] README matches the actual setup

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { api } from './api/client'
-import type { Bed, BedPayload, MoistureReading, SystemStatus } from './types/api'
+import type { Bed, BedPayload, IrrigationCurrent, MoistureReading, SystemStatus } from './types/api'
 
 const beds = ref<Bed[]>([])
 const readings = ref<Record<number, MoistureReading>>({})
@@ -9,10 +9,13 @@ const status = ref<SystemStatus | null>(null)
 const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
+const statusMessage = ref('')
 const wateringIds = ref<Set<number>>(new Set())
 const editingId = ref<number | null>(null)
 const activeModal = ref<'bed' | 'app' | null>(null)
 const confirmingDelete = ref(false)
+const currentIrrigation = ref<IrrigationCurrent | null>(null)
+let currentTimer: number | undefined
 
 const emptyForm = (): BedPayload => ({
   name: '',
@@ -21,6 +24,7 @@ const emptyForm = (): BedPayload => ({
   moisture_dry_raw: 26000,
   moisture_wet_raw: 12000,
   watering_seconds: 120,
+  auto_watering_block_after_cancel_seconds: 3600,
   enabled: true
 })
 
@@ -28,6 +32,12 @@ const form = reactive<BedPayload>(emptyForm())
 
 const isEditing = computed(() => editingId.value !== null)
 const modalTitle = computed(() => (isEditing.value ? 'Beet bearbeiten' : 'Neues Beet anlegen'))
+const autoBlockMinutes = computed({
+  get: () => Math.round(form.auto_watering_block_after_cancel_seconds / 60),
+  set: (value: number) => {
+    form.auto_watering_block_after_cancel_seconds = Math.max(0, Math.round(value * 60))
+  }
+})
 
 function assignForm(values: BedPayload) {
   Object.assign(form, values)
@@ -51,6 +61,40 @@ function moistureStatus(percent?: number) {
   return { label: 'okay', color: 'bg-emerald-100 text-emerald-800' }
 }
 
+function isBedWatering(bed: Bed) {
+  return currentIrrigation.value?.running && currentIrrigation.value.bed_id === bed.id
+}
+
+function formatDuration(totalSeconds?: number | null) {
+  const seconds = Math.max(0, totalSeconds ?? 0)
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+  return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+}
+
+function progressPercent(bed: Bed) {
+  if (!isBedWatering(bed)) return readings.value[bed.id]?.moisture_percent ?? 0
+  const planned = currentIrrigation.value?.planned_duration_seconds ?? bed.watering_seconds
+  const remaining = currentIrrigation.value?.remaining_seconds ?? planned
+  if (planned <= 0) return 0
+  return Math.max(0, Math.min(100, ((planned - remaining) / planned) * 100))
+}
+
+function blockMessage(bed: Bed) {
+  const remaining = bed.auto_watering_block_remaining_seconds
+  if (!remaining || remaining <= 0) return ''
+  const minutes = Math.ceil(remaining / 60)
+  return `Automatik pausiert nach Abbruch · noch ${minutes} min`
+}
+
+async function refreshCurrent() {
+  try {
+    currentIrrigation.value = await api.currentIrrigation()
+  } catch {
+    currentIrrigation.value = null
+  }
+}
+
 async function refresh() {
   error.value = ''
   try {
@@ -58,6 +102,7 @@ async function refresh() {
     beds.value = bedData
     readings.value = Object.fromEntries(latest.map((reading) => [reading.bed_id, reading]))
     status.value = systemStatus
+    await refreshCurrent()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Unbekannter Fehler'
   } finally {
@@ -76,9 +121,12 @@ async function readMoisture(bed: Bed) {
 
 async function water(bed: Bed) {
   error.value = ''
+  statusMessage.value = ''
   wateringIds.value = new Set(wateringIds.value).add(bed.id)
   try {
-    await api.waterBed(bed.id, bed.watering_seconds)
+    void refreshCurrent()
+    const run = await api.waterBed(bed.id, bed.watering_seconds)
+    statusMessage.value = run.status === 'cancelled' ? 'Bewässerung abgebrochen' : run.message || 'Bewässerung abgeschlossen'
     await refresh()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Bewässerung fehlgeschlagen'
@@ -86,6 +134,20 @@ async function water(bed: Bed) {
     const next = new Set(wateringIds.value)
     next.delete(bed.id)
     wateringIds.value = next
+    await refreshCurrent()
+  }
+}
+
+async function stopWater(bed: Bed) {
+  error.value = ''
+  statusMessage.value = ''
+  try {
+    const response = await api.stopWater(bed.id)
+    statusMessage.value = response.message || 'Bewässerung abgebrochen'
+    await refreshCurrent()
+    await refresh()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Abbruch fehlgeschlagen'
   }
 }
 
@@ -98,6 +160,7 @@ function editBed(bed: Bed) {
     moisture_dry_raw: bed.moisture_dry_raw,
     moisture_wet_raw: bed.moisture_wet_raw,
     watering_seconds: bed.watering_seconds,
+    auto_watering_block_after_cancel_seconds: bed.auto_watering_block_after_cancel_seconds,
     enabled: bed.enabled
   })
   activeModal.value = 'bed'
@@ -148,6 +211,18 @@ async function deleteCurrentBed() {
 }
 
 onMounted(refresh)
+onMounted(() => {
+  currentTimer = window.setInterval(() => {
+    void refreshCurrent()
+    if (currentIrrigation.value?.running) {
+      void refresh()
+    }
+  }, 1000)
+})
+
+onUnmounted(() => {
+  if (currentTimer) window.clearInterval(currentTimer)
+})
 </script>
 
 <template>
@@ -198,10 +273,18 @@ onMounted(refresh)
     <div v-if="error" class="mb-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
       {{ error }}
     </div>
+    <div v-if="statusMessage" class="mb-5 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+      {{ statusMessage }}
+    </div>
 
     <p v-if="loading" class="py-10 text-center text-slate-600">Lade Beete...</p>
     <section v-else class="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-      <article v-for="bed in beds" :key="bed.id" class="rounded-lg bg-white p-5 shadow-sm">
+      <article
+        v-for="bed in beds"
+        :key="bed.id"
+        class="rounded-lg border bg-white p-5 shadow-sm transition"
+        :class="isBedWatering(bed) ? 'border-emerald-200 bg-emerald-50/40 shadow-md' : 'border-transparent'"
+      >
         <div class="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 class="text-xl font-semibold">{{ bed.name }}</h2>
@@ -225,19 +308,58 @@ onMounted(refresh)
         </div>
         <div class="mb-4">
           <p class="text-4xl font-bold">{{ readings[bed.id]?.moisture_percent ?? '–' }}<span class="text-lg">%</span></p>
+          <p class="text-sm text-slate-500">Bodenfeuchte</p>
+          <div class="mt-2 h-2 rounded-full bg-slate-100">
+            <div
+              class="h-2 rounded-full transition-all"
+              :class="isBedWatering(bed) ? 'bg-emerald-600' : readings[bed.id]?.moisture_percent && readings[bed.id].moisture_percent > 75 ? 'bg-blue-600' : 'bg-leaf'"
+              :style="{ width: `${Math.min(100, Math.max(0, readings[bed.id]?.moisture_percent ?? 0))}%` }"
+            />
+          </div>
           <p class="text-sm text-slate-500">
             Rohwert {{ readings[bed.id]?.raw_value ?? '–' }} · {{ readings[bed.id]?.voltage?.toFixed(2) ?? '–' }} V
           </p>
           <p class="mt-1 text-sm text-slate-500">Letzte Messung {{ readings[bed.id]?.created_at ? new Date(readings[bed.id].created_at).toLocaleString() : 'ausstehend' }}</p>
+          <p v-if="blockMessage(bed)" class="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+            {{ blockMessage(bed) }}
+          </p>
         </div>
         <dl class="mb-5 grid grid-cols-2 gap-3 text-sm">
           <div class="rounded-md bg-slate-50 p-3"><dt class="text-slate-500">Pumpe</dt><dd class="font-semibold">{{ bed.pump_running || wateringIds.has(bed.id) ? 'läuft' : 'aus' }}</dd></div>
           <div class="rounded-md bg-slate-50 p-3"><dt class="text-slate-500">Dauer</dt><dd class="font-semibold">{{ bed.watering_seconds }} s</dd></div>
           <div class="rounded-md bg-slate-50 p-3"><dt class="text-slate-500">Status</dt><dd class="font-semibold">{{ bed.enabled ? 'aktiv' : 'deaktiviert' }}</dd></div>
         </dl>
+        <div v-if="isBedWatering(bed)" class="mb-5 rounded-md border border-emerald-100 bg-white/80 p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="font-semibold text-emerald-800">Bewässerung läuft</p>
+              <p class="text-sm text-slate-500">{{ currentIrrigation?.trigger === 'manual' ? 'Manuell gestartet' : 'Automatisch gestartet' }}</p>
+            </div>
+            <div class="text-right">
+              <p class="font-semibold text-emerald-800">Noch {{ formatDuration(currentIrrigation?.remaining_seconds) }}</p>
+              <p class="text-sm text-slate-500">von {{ formatDuration(currentIrrigation?.planned_duration_seconds) }}</p>
+            </div>
+          </div>
+          <div class="mt-4 h-2 rounded-full bg-slate-100">
+            <div class="h-2 rounded-full bg-emerald-600 transition-all" :style="{ width: `${progressPercent(bed)}%` }" />
+          </div>
+        </div>
+
         <div class="flex flex-wrap gap-2">
-          <button class="rounded-md bg-water px-3 py-2 text-sm font-semibold text-white" :disabled="wateringIds.has(bed.id) || !bed.enabled" @click="water(bed)">
-            {{ wateringIds.has(bed.id) ? 'Bewässert...' : 'Jetzt bewässern' }}
+          <button
+            v-if="isBedWatering(bed)"
+            class="rounded-md border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+            @click="stopWater(bed)"
+          >
+            Abbrechen
+          </button>
+          <button
+            v-else
+            class="rounded-md bg-water px-3 py-2 text-sm font-semibold text-white disabled:bg-slate-300"
+            :disabled="wateringIds.has(bed.id) || !bed.enabled || Boolean(currentIrrigation?.running)"
+            @click="water(bed)"
+          >
+            {{ currentIrrigation?.running ? 'Andere Bewässerung läuft' : 'Jetzt bewässern' }}
           </button>
           <button class="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold" @click="readMoisture(bed)">Messen</button>
         </div>
@@ -268,6 +390,11 @@ onMounted(refresh)
           <label class="text-sm font-medium">GPIO<input v-model.number="form.relay_pin" required type="number" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
           <label class="text-sm font-medium">ADS-Kanal<input v-model.number="form.ads_channel" required min="0" max="3" type="number" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
           <label class="text-sm font-medium">Bewässerungsdauer<input v-model.number="form.watering_seconds" required min="1" type="number" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
+          <label class="text-sm font-medium">
+            Automatik-Pause nach Abbruch
+            <input v-model.number="autoBlockMinutes" required min="0" type="number" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" />
+            <span class="mt-1 block text-xs text-slate-500">Minuten</span>
+          </label>
           <div class="border-t border-slate-100 pt-4 sm:col-span-2">
             <h3 class="font-semibold text-slate-950">Kalibrierung</h3>
           </div>

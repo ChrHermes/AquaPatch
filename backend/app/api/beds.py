@@ -20,6 +20,8 @@ def _bed_or_404(db: Session, bed_id: int) -> Bed:
 def _read_bed(bed: Bed) -> BedRead:
     data = BedRead.model_validate(bed)
     data.pump_running = irrigation_service.is_bed_running(bed)
+    data.auto_watering_blocked_until = irrigation_service.auto_watering_blocked_until(bed)
+    data.auto_watering_block_remaining_seconds = irrigation_service.auto_watering_block_remaining_seconds(bed)
     return data
 
 

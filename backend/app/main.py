@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 
 from app.api import beds, irrigation, moisture, system
 from app.core.database import Base, SessionLocal, engine
@@ -22,6 +22,7 @@ DEFAULT_BEDS = [
 
 def create_tables_and_seed() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_schema_columns()
     with SessionLocal() as db:
         has_beds = db.scalars(select(Bed).limit(1)).first()
         if not has_beds:
@@ -29,6 +30,24 @@ def create_tables_and_seed() -> None:
                 db.add(Bed(**item))
             db.commit()
             system_service.log_event(db, "info", "startup", "Default-Beete wurden angelegt")
+
+
+def ensure_schema_columns() -> None:
+    inspector = inspect(engine)
+    if "beds" in inspector.get_table_names():
+        bed_columns = {column["name"] for column in inspector.get_columns("beds")}
+        with engine.begin() as connection:
+            if "auto_watering_block_after_cancel_seconds" not in bed_columns:
+                connection.execute(
+                    text("ALTER TABLE beds ADD COLUMN auto_watering_block_after_cancel_seconds INTEGER NOT NULL DEFAULT 3600")
+                )
+            if "last_cancelled_at" not in bed_columns:
+                connection.execute(text("ALTER TABLE beds ADD COLUMN last_cancelled_at DATETIME"))
+    if "irrigation_runs" in inspector.get_table_names():
+        run_columns = {column["name"] for column in inspector.get_columns("irrigation_runs")}
+        with engine.begin() as connection:
+            if "status" not in run_columns:
+                connection.execute(text("ALTER TABLE irrigation_runs ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'completed'"))
 
 
 @asynccontextmanager

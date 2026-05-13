@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models import IrrigationRun
-from app.schemas import IrrigationRunRead, WaterRequest
+from app.schemas import IrrigationCurrent, IrrigationRunRead, WaterRequest
 from app.services.registry import irrigation_service
 
 router = APIRouter(prefix="/api", tags=["irrigation"])
@@ -24,6 +24,27 @@ async def water_bed(bed_id: int, payload: WaterRequest | None = None, db: Sessio
         raise HTTPException(status_code=404 if "gefunden" in str(exc) else 400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/beds/{bed_id}/water/stop")
+async def stop_bed_water(bed_id: int) -> dict[str, object]:
+    stopped = irrigation_service.stop_bed(bed_id)
+    if not stopped:
+        raise HTTPException(status_code=404, detail="Für dieses Beet läuft keine Bewässerung")
+    return {"stopped": True, "message": "Bewässerung abgebrochen"}
+
+
+@router.post("/irrigation/current/stop")
+async def stop_current_water() -> dict[str, object]:
+    stopped = irrigation_service.stop_current()
+    if not stopped:
+        raise HTTPException(status_code=404, detail="Es läuft keine Bewässerung")
+    return {"stopped": True, "message": "Bewässerung abgebrochen"}
+
+
+@router.get("/irrigation/current", response_model=IrrigationCurrent)
+def get_current_irrigation() -> dict[str, object]:
+    return irrigation_service.get_current_status()
 
 
 @router.get("/irrigation/runs", response_model=list[IrrigationRunRead])

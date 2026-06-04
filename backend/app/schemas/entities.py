@@ -7,8 +7,8 @@ class BedBase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     relay_pin: int = Field(ge=0, le=27)
     ads_channel: int = Field(ge=0, le=3)
-    moisture_dry_raw: int = Field(default=26000, ge=0)
-    moisture_wet_raw: int = Field(default=12000, ge=0)
+    moisture_dry_raw: int = Field(default=17750, ge=0)
+    moisture_wet_raw: int = Field(default=7700, ge=0)
     watering_seconds: int = Field(default=120, gt=0)
     auto_watering_block_after_cancel_seconds: int = Field(default=3600, ge=0)
     enabled: bool = True

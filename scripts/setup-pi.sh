@@ -55,6 +55,7 @@ cd "$APP_DIR"
 echo "Running AquaPatch Raspberry Pi preflight"
 require_command sudo
 require_command "$PYTHON_BIN"
+sudo -v
 
 if [[ -e /proc/device-tree/model ]]; then
   MODEL="$(tr -d '\0' </proc/device-tree/model)"
@@ -106,11 +107,11 @@ sudo systemctl enable "$SERVICE_NAME"
 sudo systemctl restart "$SERVICE_NAME"
 
 if command -v ufw >/dev/null 2>&1 && sudo ufw status | grep -q "Status: active"; then
-  echo "Opening port 8000/tcp in ufw"
-  sudo ufw allow 8000/tcp comment "AquaPatch"
+  echo "Opening port 80/tcp in ufw"
+  sudo ufw allow 80/tcp comment "AquaPatch"
 fi
 
 echo "Service status"
 sudo systemctl --no-pager --lines=20 status "$SERVICE_NAME" || true
 
-echo "AquaPatch is available at: http://$(hostname -I | awk '{print $1}'):8000"
+echo "AquaPatch is available at: http://$(hostname -I | awk '{print $1}')/"

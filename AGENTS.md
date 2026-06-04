@@ -459,6 +459,9 @@ The ADS1115 is connected via I2C.
 
 Soil moisture sensors connect to ADS1115 analog inputs A0–A3.
 
+DRY raw value is 17750
+MOIST raw value is 7700
+
 ## Testing Expectations
 
 When adding or changing backend code:

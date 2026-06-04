@@ -15,9 +15,14 @@
 - Raspberry Pi rsync deployment script for host `aquapatch`.
 - Raspberry Pi preflight/setup script for apt packages, backend venv, frontend build and systemd service installation.
 - FastAPI production frontend serving from `frontend/dist`.
-- Optional `ufw` opening for `8000/tcp` during Pi setup when `ufw` is active.
+- Optional `ufw` opening for AquaPatch during Pi setup when `ufw` is active.
 
 ### Changed
+- Raspberry Pi deployment now serves AquaPatch on HTTP port `80` so `http://aquapatch/` works without a port suffix.
+- Pi systemd unit now grants `CAP_NET_BIND_SERVICE` to the non-root service process for binding port `80`.
+- Pi setup now opens `80/tcp` in `ufw` when `ufw` is active.
+- Compact dashboard card layout so three beds fit on a wide desktop row and cards stay within narrow mobile viewports.
+- Updated default moisture calibration raw values to dry `17750` and wet/moist `7700`, including startup migration for beds still using the old default pair.
 - Simplified the dashboard so bed and app settings open in overlays instead of appearing permanently on the main page.
 - Replaced symbol/emoji-style dashboard icons with inline Material Design SVG icons.
 - Moved calibration values out of the dashboard cards and kept them in each bed's settings overlay.

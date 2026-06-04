@@ -70,9 +70,9 @@ if [[ "$RUN_SETUP" == "true" ]]; then
   if [[ ${#SETUP_ARGS[@]} -gt 0 ]]; then
     REMOTE_SETUP_CMD="${REMOTE_SETUP_CMD} ${SETUP_ARGS[*]}"
   fi
-  ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "$REMOTE_SETUP_CMD"
+  ssh -tt "${SSH_OPTS[@]}" "$SSH_TARGET" "$REMOTE_SETUP_CMD"
 else
   echo "Skipped remote setup. Run on the Pi: cd '$REMOTE_DIR' && bash scripts/setup-pi.sh"
 fi
 
-echo "Deployment finished. Open: http://${PI_HOST}:8000"
+echo "Deployment finished. Open: http://${PI_HOST}/"

@@ -111,7 +111,7 @@ The Vite dev server proxies `/api` to `http://localhost:8000`. Build production 
 npm run build
 ```
 
-When `frontend/dist` exists, the FastAPI backend serves the production dashboard from `http://localhost:8000/`. This keeps the Raspberry Pi deployment simple and avoids a separate nginx service.
+When `frontend/dist` exists, the FastAPI backend serves the production dashboard. Local development still uses port `8000`; the Raspberry Pi systemd deployment uses port `80`, so the dashboard is available without a port suffix.
 
 Dashboard usage:
 
@@ -193,6 +193,13 @@ Typical wiring:
 - Relay inputs to Pi `GPIO17`, `GPIO27`, `GPIO22`.
 - Pumps in the separate 24 V relay load circuit.
 
+Default moisture calibration for new beds:
+
+- Dry raw value: `17750`
+- Wet/moist raw value: `7700`
+
+Existing beds that still use the old default calibration pair `26000` / `12000` are migrated to these values during backend startup. Beds with custom calibration values are left unchanged.
+
 ## Raspberry Pi Deployment
 
 Target deployment configured for the current local Pi:
@@ -202,7 +209,7 @@ Target deployment configured for the current local Pi:
 - SSH key: `/Users/christopher/.ssh/id_ed25519`
 - Remote directory: `/home/christopher/aquapatch`
 - Service: `aquapatch-backend`
-- URL after deployment: `http://aquapatch:8000`
+- URL after deployment: `http://aquapatch/`
 
 Deploy from this machine with rsync:
 
@@ -216,7 +223,7 @@ The deploy script syncs the repository to the Pi, excluding local virtualenvs, `
 scripts/setup-pi.sh
 ```
 
-The setup script performs a small preflight, installs required apt packages, creates `backend/.venv`, installs Python dependencies, creates `backend/.env` if missing, builds the frontend and installs the systemd unit. If `ufw` is installed and active, it also allows `8000/tcp` for AquaPatch.
+The setup script performs a small preflight, installs required apt packages, creates `backend/.venv`, installs Python dependencies, creates `backend/.env` if missing, builds the frontend and installs the systemd unit. If `ufw` is installed and active, it also allows `80/tcp` for AquaPatch.
 
 For first hardware testing, deploy with real hardware mode:
 
@@ -250,7 +257,7 @@ backend/systemd/aquapatch-backend.service
 It runs:
 
 ```text
-/home/christopher/aquapatch/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+/home/christopher/aquapatch/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 80
 ```
 
 and reads configuration from:
@@ -258,6 +265,8 @@ and reads configuration from:
 ```text
 /home/christopher/aquapatch/backend/.env
 ```
+
+The unit grants only `CAP_NET_BIND_SERVICE` so the `christopher` service user can bind to port `80` without running the backend as root.
 
 If you need to install the unit manually:
 

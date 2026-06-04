@@ -46,6 +46,13 @@ def ensure_schema_columns() -> None:
                 )
             if "last_cancelled_at" not in bed_columns:
                 connection.execute(text("ALTER TABLE beds ADD COLUMN last_cancelled_at DATETIME"))
+            connection.execute(
+                text(
+                    "UPDATE beds "
+                    "SET moisture_dry_raw = 17750, moisture_wet_raw = 7700 "
+                    "WHERE moisture_dry_raw = 26000 AND moisture_wet_raw = 12000"
+                )
+            )
     if "irrigation_runs" in inspector.get_table_names():
         run_columns = {column["name"] for column in inspector.get_columns("irrigation_runs")}
         with engine.begin() as connection:

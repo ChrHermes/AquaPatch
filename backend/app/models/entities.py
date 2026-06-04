@@ -15,6 +15,7 @@ class Bed(Base):
     ads_channel: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
     moisture_dry_raw: Mapped[int] = mapped_column(Integer, default=17750, nullable=False)
     moisture_wet_raw: Mapped[int] = mapped_column(Integer, default=7700, nullable=False)
+    sensor_disconnected_raw_threshold: Mapped[int] = mapped_column(Integer, default=5000, nullable=False)
     watering_seconds: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
     auto_watering_block_after_cancel_seconds: Mapped[int] = mapped_column(Integer, default=3600, nullable=False)
     last_cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -33,7 +34,10 @@ class MoistureReading(Base):
     bed_id: Mapped[int] = mapped_column(ForeignKey("beds.id", ondelete="CASCADE"), index=True)
     raw_value: Mapped[int] = mapped_column(Integer, nullable=False)
     voltage: Mapped[float] = mapped_column(Float, nullable=False)
-    moisture_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    moisture_percent: Mapped[float | None] = mapped_column(Float)
+    is_valid: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    warning_code: Mapped[str | None] = mapped_column(String(80))
+    warning_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     bed: Mapped[Bed] = relationship(back_populates="readings")
@@ -51,8 +55,24 @@ class IrrigationRun(Base):
     success: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="completed", nullable=False)
     message: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    moisture_before_percent: Mapped[float | None] = mapped_column(Float)
+    moisture_after_percent: Mapped[float | None] = mapped_column(Float)
+    moisture_before_raw: Mapped[int | None] = mapped_column(Integer)
+    moisture_after_raw: Mapped[int | None] = mapped_column(Integer)
 
     bed: Mapped[Bed] = relationship(back_populates="irrigation_runs")
+
+
+class ClimateReading(Base):
+    __tablename__ = "climate_readings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    temperature_c: Mapped[float | None] = mapped_column(Float)
+    humidity_percent: Mapped[float | None] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(40), default="dht21", nullable=False)
+    is_valid: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class SystemEvent(Base):

@@ -5,6 +5,7 @@ export interface Bed {
   ads_channel: number
   moisture_dry_raw: number
   moisture_wet_raw: number
+  sensor_disconnected_raw_threshold: number
   watering_seconds: number
   auto_watering_block_after_cancel_seconds: number
   enabled: boolean
@@ -22,6 +23,7 @@ export interface BedPayload {
   ads_channel: number
   moisture_dry_raw: number
   moisture_wet_raw: number
+  sensor_disconnected_raw_threshold: number
   watering_seconds: number
   auto_watering_block_after_cancel_seconds: number
   enabled: boolean
@@ -32,8 +34,17 @@ export interface MoistureReading {
   bed_id: number
   raw_value: number
   voltage: number
-  moisture_percent: number
+  moisture_percent: number | null
+  is_valid: boolean
+  warning_code: string | null
+  warning_message: string | null
   created_at: string
+}
+
+export interface MoistureSeriesPoint {
+  timestamp: string
+  avg_moisture_percent: number | null
+  avg_raw_value: number | null
 }
 
 export interface IrrigationRun {
@@ -46,6 +57,18 @@ export interface IrrigationRun {
   success: boolean
   status: 'completed' | 'cancelled' | 'failed'
   message: string
+  moisture_before_percent: number | null
+  moisture_after_percent: number | null
+  moisture_before_raw: number | null
+  moisture_after_raw: number | null
+}
+
+export interface IrrigationInterval {
+  started_at: string
+  finished_at: string | null
+  duration_seconds: number
+  status: 'completed' | 'cancelled' | 'failed'
+  trigger: string
 }
 
 export interface SystemStatus {
@@ -56,6 +79,43 @@ export interface SystemStatus {
   bed_count: number
   irrigation_running: boolean
   max_watering_seconds: number
+  dht21_enabled: boolean
+  dht21_gpio_pin: number
+}
+
+export interface ClimateReading {
+  id: number
+  temperature_c: number | null
+  humidity_percent: number | null
+  source: string
+  is_valid: boolean
+  error_message: string | null
+  created_at: string
+}
+
+export interface BedDailySummary {
+  bed_id: number
+  bed_name: string
+  irrigation_count: number
+  total_duration_seconds: number
+  last_irrigation_at: string | null
+  moisture_min: number | null
+  moisture_max: number | null
+  moisture_avg: number | null
+  sensor_warning_count: number
+}
+
+export interface DailySummary {
+  date: string
+  irrigation_count: number
+  total_duration_seconds: number
+  beds: BedDailySummary[]
+  climate_avg_temperature_c: number | null
+  climate_avg_humidity_percent: number | null
+  climate_min_temperature_c: number | null
+  climate_max_temperature_c: number | null
+  climate_min_humidity_percent: number | null
+  climate_max_humidity_percent: number | null
 }
 
 export interface IrrigationCurrent {

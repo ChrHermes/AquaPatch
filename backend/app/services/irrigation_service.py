@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.integrations.mqtt_service import MqttService
-from app.models import Bed, IrrigationRun
+from app.models import Bed, IrrigationRun, MoistureReading
+from app.services.moisture_service import MoistureService
 from app.services.relay_service import RelayService
 
 
@@ -21,9 +22,16 @@ class CurrentIrrigation:
 
 
 class IrrigationService:
-    def __init__(self, settings: Settings, relay_service: RelayService, mqtt: MqttService | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        relay_service: RelayService,
+        moisture_service: MoistureService,
+        mqtt: MqttService | None = None,
+    ) -> None:
         self.settings = settings
         self.relay_service = relay_service
+        self.moisture_service = moisture_service
         self.mqtt = mqtt
         self._lock = asyncio.Lock()
         self._current: CurrentIrrigation | None = None
@@ -46,6 +54,9 @@ class IrrigationService:
         block_remaining = self.auto_watering_block_remaining_seconds(bed)
         if trigger != "manual" and block_remaining is not None:
             raise RuntimeError(f"Automatik ist nach Abbruch noch {block_remaining} Sekunden pausiert")
+        moisture_before = self._try_read_moisture(db, bed)
+        if trigger != "manual" and moisture_before is not None and not moisture_before.is_valid:
+            raise RuntimeError("Automatische Bewässerung wegen ungültigem Sensorwert blockiert")
 
         requested_duration = duration_seconds or bed.watering_seconds
         duration = min(requested_duration, self.settings.max_watering_seconds)
@@ -59,6 +70,8 @@ class IrrigationService:
             success=False,
             status="failed",
             message="Bewässerung gestartet",
+            moisture_before_percent=moisture_before.moisture_percent if moisture_before else None,
+            moisture_before_raw=moisture_before.raw_value if moisture_before else None,
         )
 
         if self._lock.locked():
@@ -106,6 +119,10 @@ class IrrigationService:
                 raise
             finally:
                 self.relay_service.turn_off(bed)
+                moisture_after = self._try_read_moisture(db, bed)
+                if moisture_after is not None:
+                    run.moisture_after_percent = moisture_after.moisture_percent
+                    run.moisture_after_raw = moisture_after.raw_value
                 self._current = None
                 if self.mqtt:
                     self.mqtt.publish_pump_state(bed, "OFF")
@@ -120,6 +137,12 @@ class IrrigationService:
                 db.commit()
                 db.refresh(run)
         return run
+
+    def _try_read_moisture(self, db: Session, bed: Bed) -> MoistureReading | None:
+        try:
+            return self.moisture_service.read_and_store(db, bed)
+        except Exception:
+            return None
 
     def stop_bed(self, bed_id: int) -> bool:
         if self._current is None or self._current.bed_id != bed_id:

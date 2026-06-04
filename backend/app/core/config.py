@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     mqtt_username: str | None = Field(default=None, alias="MQTT_USERNAME")
     mqtt_password: str | None = Field(default=None, alias="MQTT_PASSWORD")
     mqtt_base_topic: str = Field(default="garden_irrigation", alias="MQTT_BASE_TOPIC")
+    dht21_enabled: bool = Field(default=False, alias="DHT21_ENABLED")
+    dht21_gpio_pin: int = Field(default=4, alias="DHT21_GPIO_PIN")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

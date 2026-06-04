@@ -2,21 +2,25 @@
 
 AquaPatch is a local garden irrigation dashboard for a Raspberry Pi 4. It controls one relay-driven 24 V pump per bed, reads capacitive soil moisture sensors through an ADS1115 ADC, and stays fully usable without cloud services, Home Assistant, user accounts or Docker.
 
-The current implementation includes a FastAPI backend, SQLite database, Vue 3 frontend, mock hardware mode and optional MQTT publishing for future Home Assistant integration.
+The current implementation includes a FastAPI backend, SQLite database, Vue 3 frontend, mock hardware mode, optional DHT21 climate readings and optional MQTT publishing for future Home Assistant integration.
 
 ## Current Features
 
 - FastAPI REST API with SQLite and SQLAlchemy 2.x.
-- Default beds on first startup: `Tomaten`, `Hortensien 1`, `Hortensien 2`.
-- CRUD API for beds and calibration values.
-- Mock ADS1115 readings and mock relay actions for local development.
+- Default beds on first startup: `Hochbeet 1`, `Tomaten`, `Blumen`.
+- CRUD API for beds, calibration values and sensor warning thresholds.
+- Mock ADS1115/DHT21 readings and mock relay actions for local development.
 - Moisture percentage calculation from per-bed dry/wet raw calibration.
+- Sensor plausibility warnings for unrealistically low raw moisture values.
 - Manual watering endpoint with maximum duration, visible remaining runtime and manual cancellation.
+- Irrigation run log with trigger, status, error message and optional moisture values before/after watering.
 - Global irrigation lock: only one pump runs at a time.
 - Automatic watering pause after manual cancellation, configurable per bed.
 - Relay cleanup on shutdown and `finally` pump-off behavior after watering.
-- Optional MQTT publishing for moisture, pump and system state.
-- Vue dashboard with clean bed cards, Material Design SVG icons, compact app controls, manual watering, moisture reads and modal settings for beds and app status.
+- Tageszusammenfassung with per-bed watering duration, last watering, moisture min/max/average and sensor warning counts.
+- 24h moisture mini charts using 5-minute averages and irrigation interval markers.
+- Optional MQTT publishing for moisture, sensor, climate, pump and system state.
+- Vue dashboard with clean bed cards, Material Design SVG icons, compact app controls, 10-second auto-refresh, manual watering, moisture reads, DHT21 climate display, daily summary and modal settings for beds and app status.
 - Raspberry Pi deployment scripts for rsync-based deploy, preflight setup and systemd service installation.
 
 Planned:
@@ -24,7 +28,6 @@ Planned:
 - Water tank level sensor support.
 - Rain or weather lockout.
 - Home Assistant MQTT Discovery.
-- Charts for moisture history.
 
 ## Hardware Overview
 
@@ -32,6 +35,7 @@ Initial target hardware:
 
 - Raspberry Pi 4.
 - ADS1115 connected by I2C.
+- Optional DHT21/AM2301 on a configurable GPIO pin.
 - Capacitive Soil Moisture Sensor v1.2 on ADS1115 channels A0, A1 and A2.
 - Relay channels on GPIO17, GPIO27 and GPIO22.
 - Three 24 V DC pumps switched in the external load circuit.
@@ -105,23 +109,25 @@ npm install
 npm run dev
 ```
 
-The Vite dev server proxies `/api` to `http://localhost:8000`. Build production assets with:
+The Vite dev server is configured for port `5173` and proxies `/api` to `http://localhost:8000`. Build production assets with:
 
 ```bash
 npm run build
 ```
 
-When `frontend/dist` exists, the FastAPI backend serves the production dashboard. Local development still uses port `8000`; the Raspberry Pi systemd deployment uses port `80`, so the dashboard is available without a port suffix.
+For local development the Vite frontend runs on `5173` and the API runs on `8000`. On the Raspberry Pi, Nginx serves the built frontend on standard HTTP port `80`, so `http://aquapatch/` works without a port suffix. The FastAPI backend continues to listen on `8000`; Nginx proxies `/api` to it.
 
 Dashboard usage:
 
 - Use the `+` button in the header to add a new bed.
 - Use the gear in a bed card to edit relay pin, ADS channel, watering duration, enabled state and moisture calibration.
 - Set `Automatik-Pause nach Abbruch` in minutes inside each bed's settings dialog.
+- Set `Sensorwarnung unter raw` per bed to flag disconnected or implausible moisture sensors.
 - Use the delete action inside a bed's settings dialog to remove a bed after confirmation.
-- Use the app gear in the header to view backend, mock, MQTT and maximum watering status.
+- Use the app gear in the header to view backend, mock, MQTT, DHT21 and maximum watering status.
 - Bed and app settings open as overlays, keeping the main dashboard focused on current bed state.
 - During watering, the active bed card shows remaining time, total planned duration, a progress bar and an `Abbrechen` button.
+- The dashboard refreshes bed data, latest readings, pump status, climate and the daily summary every 10 seconds. Manual refresh remains available.
 
 ## Environment Variables
 
@@ -137,6 +143,8 @@ Dashboard usage:
 | `MQTT_USERNAME` | empty | Optional MQTT username. |
 | `MQTT_PASSWORD` | empty | Optional MQTT password. |
 | `MQTT_BASE_TOPIC` | `garden_irrigation` | Base topic for MQTT publishing. |
+| `DHT21_ENABLED` | `false` | Enables optional DHT21 climate readings. |
+| `DHT21_GPIO_PIN` | `4` | GPIO pin used for the DHT21 data line. |
 
 ## API Overview
 
@@ -151,6 +159,7 @@ Beds:
 Moisture:
 
 - `GET /api/beds/{bed_id}/moisture`
+- `GET /api/beds/{bed_id}/moisture/series?range=24h&bucket=5m`
 - `GET /api/readings/latest`
 - `GET /api/readings?bed_id=1&limit=100`
 
@@ -162,6 +171,18 @@ Irrigation:
 - `POST /api/irrigation/current/stop`
 - `GET /api/irrigation/runs`
 - `GET /api/irrigation/runs?bed_id=1&limit=50`
+- `GET /api/beds/{bed_id}/irrigation/intervals?range=24h`
+
+Climate:
+
+- `GET /api/climate/latest`
+- `GET /api/climate/readings?limit=100`
+- `POST /api/climate/read`
+
+Summary:
+
+- `GET /api/summary/today`
+- `GET /api/summary/daily?date=YYYY-MM-DD`
 
 System:
 
@@ -190,6 +211,7 @@ Typical wiring:
 - ADS1115 `SCL` to Pi `GPIO3/SCL`.
 - ADS1115 `SDA` to Pi `GPIO2/SDA`.
 - Moisture sensor analog outputs to ADS1115 `A0`, `A1`, `A2`.
+- Optional DHT21 data pin to configured GPIO, default `GPIO4`.
 - Relay inputs to Pi `GPIO17`, `GPIO27`, `GPIO22`.
 - Pumps in the separate 24 V relay load circuit.
 
@@ -199,6 +221,18 @@ Default moisture calibration for new beds:
 - Wet/moist raw value: `7700`
 
 Existing beds that still use the old default calibration pair `26000` / `12000` are migrated to these values during backend startup. Beds with custom calibration values are left unchanged.
+
+Moisture sensor plausibility:
+
+- Each bed has `sensor_disconnected_raw_threshold`, default `5000`.
+- If a raw value is below the threshold, the reading is stored with `is_valid=false`, `warning_code="sensor_disconnected"` and no normal moisture percentage.
+- Automatic watering is blocked for invalid sensor values. Manual watering remains possible, but the dashboard shows a visible warning.
+
+Climate readings:
+
+- `DHT21_ENABLED=false` keeps the DHT21 optional.
+- In mock mode, DHT21 readings are simulated between `21.0` and `30.0 °C` and `45.0` to `85.0 %` relative humidity.
+- Climate readings are stored in SQLite and included in the daily summary when available.
 
 ## Raspberry Pi Deployment
 
@@ -223,7 +257,7 @@ The deploy script syncs the repository to the Pi, excluding local virtualenvs, `
 scripts/setup-pi.sh
 ```
 
-The setup script performs a small preflight, installs required apt packages, creates `backend/.venv`, installs Python dependencies, creates `backend/.env` if missing, builds the frontend and installs the systemd unit. If `ufw` is installed and active, it also allows `80/tcp` for AquaPatch.
+The setup script performs a small preflight, installs required apt packages, creates `backend/.venv`, installs Python dependencies, creates `backend/.env` if missing, builds the frontend, installs the systemd unit and configures Nginx. If `ufw` is installed and active, it allows `80/tcp` for the frontend and `8000/tcp` for the API.
 
 For first hardware testing, deploy with real hardware mode:
 
@@ -254,10 +288,10 @@ The systemd unit is installed from:
 backend/systemd/aquapatch-backend.service
 ```
 
-It runs:
+It runs the API:
 
 ```text
-/home/christopher/aquapatch/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 80
+/home/christopher/aquapatch/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 and reads configuration from:
@@ -266,7 +300,7 @@ and reads configuration from:
 /home/christopher/aquapatch/backend/.env
 ```
 
-The unit grants only `CAP_NET_BIND_SERVICE` so the `christopher` service user can bind to port `80` without running the backend as root.
+Nginx serves the built frontend from `/var/www/aquapatch` on port `80` and proxies `/api` to `127.0.0.1:8000`.
 
 If you need to install the unit manually:
 
@@ -275,6 +309,12 @@ sudo cp backend/systemd/aquapatch-backend.service /etc/systemd/system/aquapatch-
 sudo systemctl daemon-reload
 sudo systemctl enable --now aquapatch-backend
 sudo systemctl status aquapatch-backend
+```
+
+The Nginx site config is installed from:
+
+```bash
+backend/systemd/aquapatch-nginx.conf
 ```
 
 ## MQTT and Home Assistant Readiness
@@ -288,6 +328,10 @@ garden_irrigation/bed/{bed_id}/name
 garden_irrigation/bed/{bed_id}/moisture_percent
 garden_irrigation/bed/{bed_id}/moisture_raw
 garden_irrigation/bed/{bed_id}/moisture_voltage
+garden_irrigation/bed/{bed_id}/sensor/status
+garden_irrigation/bed/{bed_id}/sensor/warning_code
+garden_irrigation/bed/{bed_id}/sensor/is_valid
+garden_irrigation/bed/{bed_id}/moisture/series_available
 garden_irrigation/bed/{bed_id}/pump/state
 garden_irrigation/bed/{bed_id}/irrigation/last_run
 garden_irrigation/bed/{bed_id}/irrigation/remaining_seconds
@@ -300,6 +344,9 @@ garden_irrigation/bed/{bed_id}/status
 garden_irrigation/system/status
 garden_irrigation/system/hardware_mock
 garden_irrigation/system/mqtt/status
+garden_irrigation/climate/temperature_c
+garden_irrigation/climate/humidity_percent
+garden_irrigation/climate/status
 ```
 
 MQTT command topics:
@@ -327,7 +374,9 @@ Home Assistant MQTT Discovery is not implemented yet.
 [ ] Raspberry Pi boots and application starts
 [ ] I2C is enabled
 [ ] ADS1115 is detected
+[ ] DHT21 is detected when `DHT21_ENABLED=true`
 [ ] moisture values can be read from all configured channels
+[ ] sensor warning appears for disconnected or implausibly low moisture sensors
 [ ] each relay can be switched individually
 [ ] relay active-low setting is correct
 [ ] each pump starts only for its assigned bed
@@ -338,7 +387,9 @@ Home Assistant MQTT Discovery is not implemented yet.
 [ ] pump stops after API error or interruption
 [ ] pump stops after manual cancellation
 [ ] automatic watering is blocked for a bed after manual cancellation
+[ ] automatic watering is blocked when a moisture reading is invalid
 [ ] frontend shows current bed states
+[ ] frontend shows climate, daily summary and moisture charts
 [ ] manual watering works from frontend
 [ ] README matches the actual setup
 ```
@@ -347,4 +398,4 @@ Home Assistant MQTT Discovery is not implemented yet.
 
 - MQTT command handling is prepared at the service layer, but REST is the primary supported control path in this first implementation.
 - Hardware behavior still needs validation on the Raspberry Pi with the actual relay board and ADS1115.
-- The frontend does not include charts yet.
+- DHT21 support is optional and still needs validation with the actual sensor wiring on Raspberry Pi hardware.

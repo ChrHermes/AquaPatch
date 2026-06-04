@@ -3,8 +3,8 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models import IrrigationRun
-from app.schemas import IrrigationCurrent, IrrigationRunRead, WaterRequest
+from app.models import Bed, IrrigationRun
+from app.schemas import IrrigationCurrent, IrrigationInterval, IrrigationRunRead, WaterRequest
 from app.services.registry import irrigation_service
 
 router = APIRouter(prefix="/api", tags=["irrigation"])
@@ -57,3 +57,24 @@ def list_irrigation_runs(
     if bed_id is not None:
         statement = statement.where(IrrigationRun.bed_id == bed_id)
     return list(db.scalars(statement).all())
+
+
+@router.get("/beds/{bed_id}/irrigation/intervals", response_model=list[IrrigationInterval])
+def irrigation_intervals(
+    bed_id: int,
+    range: str = Query(default="24h", pattern="^(6h|24h|today)$"),
+    db: Session = Depends(get_db),
+) -> list[IrrigationRun]:
+    if db.get(Bed, bed_id) is None:
+        raise HTTPException(status_code=404, detail="Beet wurde nicht gefunden")
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    start = datetime.combine(now.date(), datetime.min.time()) if range == "today" else now - timedelta(hours=6 if range == "6h" else 24)
+    return list(
+        db.scalars(
+            select(IrrigationRun)
+            .where(IrrigationRun.bed_id == bed_id, IrrigationRun.started_at >= start)
+            .order_by(IrrigationRun.started_at)
+        ).all()
+    )

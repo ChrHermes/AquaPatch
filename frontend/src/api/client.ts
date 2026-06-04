@@ -1,4 +1,15 @@
-import type { Bed, BedPayload, IrrigationCurrent, IrrigationRun, MoistureReading, SystemStatus } from '../types/api'
+import type {
+  Bed,
+  BedPayload,
+  ClimateReading,
+  DailySummary,
+  IrrigationCurrent,
+  IrrigationInterval,
+  IrrigationRun,
+  MoistureReading,
+  MoistureSeriesPoint,
+  SystemStatus
+} from '../types/api'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -24,6 +35,8 @@ export const api = {
     request<Bed>(`/api/beds/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteBed: (id: number) => request<void>(`/api/beds/${id}`, { method: 'DELETE' }),
   readMoisture: (id: number) => request<MoistureReading>(`/api/beds/${id}/moisture`),
+  moistureSeries: (id: number) => request<MoistureSeriesPoint[]>(`/api/beds/${id}/moisture/series?range=24h&bucket=5m`),
+  irrigationIntervals: (id: number) => request<IrrigationInterval[]>(`/api/beds/${id}/irrigation/intervals?range=24h`),
   latestReadings: () => request<MoistureReading[]>('/api/readings/latest'),
   waterBed: (id: number, duration_seconds?: number) =>
     request<IrrigationRun>(`/api/beds/${id}/water`, {
@@ -32,5 +45,8 @@ export const api = {
     }),
   stopWater: (id: number) => request<{ stopped: boolean; message: string }>(`/api/beds/${id}/water/stop`, { method: 'POST' }),
   currentIrrigation: () => request<IrrigationCurrent>('/api/irrigation/current'),
+  climateLatest: () => request<ClimateReading>('/api/climate/latest'),
+  climateRead: () => request<ClimateReading>('/api/climate/read', { method: 'POST' }),
+  summaryToday: () => request<DailySummary>('/api/summary/today'),
   status: () => request<SystemStatus>('/api/system/status')
 }

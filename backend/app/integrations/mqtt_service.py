@@ -63,6 +63,16 @@ class MqttService:
         self.publish(f"{base}/moisture_percent", reading.moisture_percent)
         self.publish(f"{base}/moisture_raw", reading.raw_value)
         self.publish(f"{base}/moisture_voltage", reading.voltage)
+        self.publish(f"{base}/sensor/status", "ok" if reading.is_valid else "warning")
+        self.publish(f"{base}/sensor/warning_code", reading.warning_code or "")
+        self.publish(f"{base}/sensor/is_valid", reading.is_valid)
+        self.publish(f"{base}/moisture/series_available", True, retain=True)
+
+    def publish_climate(self, reading: Any) -> None:
+        base = f"{self.settings.mqtt_base_topic}/climate"
+        self.publish(f"{base}/temperature_c", reading.temperature_c)
+        self.publish(f"{base}/humidity_percent", reading.humidity_percent)
+        self.publish(f"{base}/status", "ok" if reading.is_valid else "warning")
 
     def publish_pump_state(self, bed: Any, state: str) -> None:
         self.publish(f"{self._bed_topic(bed.id)}/pump/state", state)

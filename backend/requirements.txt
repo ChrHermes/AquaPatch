@@ -6,4 +6,5 @@ pydantic-settings==2.7.0
 paho-mqtt==2.1.0
 RPi.GPIO==0.7.1; platform_system == "Linux"
 adafruit-circuitpython-ads1x15==2.4.0
+adafruit-circuitpython-dht==4.0.7
 httpx==0.28.1

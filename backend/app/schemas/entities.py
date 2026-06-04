@@ -9,6 +9,7 @@ class BedBase(BaseModel):
     ads_channel: int = Field(ge=0, le=3)
     moisture_dry_raw: int = Field(default=17750, ge=0)
     moisture_wet_raw: int = Field(default=7700, ge=0)
+    sensor_disconnected_raw_threshold: int = Field(default=5000, ge=0)
     watering_seconds: int = Field(default=120, gt=0)
     auto_watering_block_after_cancel_seconds: int = Field(default=3600, ge=0)
     enabled: bool = True
@@ -32,6 +33,7 @@ class BedUpdate(BaseModel):
     ads_channel: int | None = Field(default=None, ge=0, le=3)
     moisture_dry_raw: int | None = Field(default=None, ge=0)
     moisture_wet_raw: int | None = Field(default=None, ge=0)
+    sensor_disconnected_raw_threshold: int | None = Field(default=None, ge=0)
     watering_seconds: int | None = Field(default=None, gt=0)
     auto_watering_block_after_cancel_seconds: int | None = Field(default=None, ge=0)
     enabled: bool | None = None
@@ -64,7 +66,10 @@ class MoistureReadingRead(BaseModel):
     bed_id: int
     raw_value: int
     voltage: float
-    moisture_percent: float
+    moisture_percent: float | None
+    is_valid: bool = True
+    warning_code: str | None = None
+    warning_message: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -85,6 +90,22 @@ class IrrigationRunRead(BaseModel):
     success: bool
     status: str
     message: str
+    moisture_before_percent: float | None = None
+    moisture_after_percent: float | None = None
+    moisture_before_raw: int | None = None
+    moisture_after_raw: int | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ClimateReadingRead(BaseModel):
+    id: int
+    temperature_c: float | None
+    humidity_percent: float | None
+    source: str
+    is_valid: bool
+    error_message: str | None
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -107,6 +128,8 @@ class SystemStatus(BaseModel):
     bed_count: int
     irrigation_running: bool
     max_watering_seconds: int
+    dht21_enabled: bool
+    dht21_gpio_pin: int
 
 
 class IrrigationCurrent(BaseModel):
@@ -119,3 +142,42 @@ class IrrigationCurrent(BaseModel):
     remaining_seconds: int | None = None
     trigger: str | None = None
     can_cancel: bool = False
+
+
+class MoistureSeriesPoint(BaseModel):
+    timestamp: datetime
+    avg_moisture_percent: float | None
+    avg_raw_value: float | None
+
+
+class IrrigationInterval(BaseModel):
+    started_at: datetime
+    finished_at: datetime | None
+    duration_seconds: int
+    status: str
+    trigger: str
+
+
+class BedDailySummary(BaseModel):
+    bed_id: int
+    bed_name: str
+    irrigation_count: int
+    total_duration_seconds: int
+    last_irrigation_at: datetime | None
+    moisture_min: float | None
+    moisture_max: float | None
+    moisture_avg: float | None
+    sensor_warning_count: int
+
+
+class DailySummary(BaseModel):
+    date: str
+    irrigation_count: int
+    total_duration_seconds: int
+    beds: list[BedDailySummary]
+    climate_avg_temperature_c: float | None = None
+    climate_avg_humidity_percent: float | None = None
+    climate_min_temperature_c: float | None = None
+    climate_max_temperature_c: float | None = None
+    climate_min_humidity_percent: float | None = None
+    climate_max_humidity_percent: float | None = None

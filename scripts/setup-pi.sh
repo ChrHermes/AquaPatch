@@ -79,6 +79,7 @@ sudo apt-get install -y \
   i2c-tools \
   nodejs \
   npm \
+  nginx \
   rsync
 
 echo "Preparing backend virtual environment"
@@ -100,18 +101,38 @@ echo "Building frontend"
 npm --prefix frontend install
 npm --prefix frontend run build
 
+echo "Publishing frontend assets"
+sudo mkdir -p /var/www/aquapatch
+sudo rsync -a --delete frontend/dist/ /var/www/aquapatch/
+sudo chown -R www-data:www-data /var/www/aquapatch
+
 echo "Installing systemd service"
 sudo cp backend/systemd/aquapatch-backend.service "/etc/systemd/system/${SERVICE_NAME}.service"
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
+if pgrep -u "$APP_USER" -f "uvicorn app.main:app.*--port 8000" >/dev/null 2>&1; then
+  echo "Stopping existing user-run AquaPatch API process on port 8000"
+  pkill -u "$APP_USER" -f "uvicorn app.main:app.*--port 8000" || true
+fi
 sudo systemctl restart "$SERVICE_NAME"
+
+echo "Installing nginx frontend site"
+sudo cp backend/systemd/aquapatch-nginx.conf /etc/nginx/sites-available/aquapatch
+sudo ln -sfn /etc/nginx/sites-available/aquapatch /etc/nginx/sites-enabled/aquapatch
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl enable nginx
+sudo systemctl restart nginx
 
 if command -v ufw >/dev/null 2>&1 && sudo ufw status | grep -q "Status: active"; then
   echo "Opening port 80/tcp in ufw"
   sudo ufw allow 80/tcp comment "AquaPatch"
+  echo "Opening port 8000/tcp in ufw"
+  sudo ufw allow 8000/tcp comment "AquaPatch API"
 fi
 
 echo "Service status"
 sudo systemctl --no-pager --lines=20 status "$SERVICE_NAME" || true
 
-echo "AquaPatch is available at: http://$(hostname -I | awk '{print $1}')/"
+echo "AquaPatch frontend is available at: http://$(hostname -I | awk '{print $1}')/"
+echo "AquaPatch API is available at: http://$(hostname -I | awk '{print $1}'):8000/"

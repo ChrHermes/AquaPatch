@@ -26,4 +26,6 @@ class SystemService:
             "bed_count": bed_count,
             "irrigation_running": irrigation_running,
             "max_watering_seconds": self.settings.max_watering_seconds,
+            "dht21_enabled": self.settings.dht21_enabled,
+            "dht21_gpio_pin": self.settings.dht21_gpio_pin,
         }

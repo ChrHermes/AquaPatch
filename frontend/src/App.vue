@@ -1,11 +1,25 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { api } from './api/client'
-import type { Bed, BedPayload, IrrigationCurrent, MoistureReading, SystemStatus } from './types/api'
+import type {
+  Bed,
+  BedPayload,
+  ClimateReading,
+  DailySummary,
+  IrrigationCurrent,
+  IrrigationInterval,
+  MoistureReading,
+  MoistureSeriesPoint,
+  SystemStatus
+} from './types/api'
 
 const beds = ref<Bed[]>([])
 const readings = ref<Record<number, MoistureReading>>({})
+const series = ref<Record<number, MoistureSeriesPoint[]>>({})
+const intervals = ref<Record<number, IrrigationInterval[]>>({})
 const status = ref<SystemStatus | null>(null)
+const climate = ref<ClimateReading | null>(null)
+const summary = ref<DailySummary | null>(null)
 const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
@@ -16,6 +30,7 @@ const activeModal = ref<'bed' | 'app' | null>(null)
 const confirmingDelete = ref(false)
 const currentIrrigation = ref<IrrigationCurrent | null>(null)
 let currentTimer: number | undefined
+let refreshTimer: number | undefined
 
 const emptyForm = (): BedPayload => ({
   name: '',
@@ -23,6 +38,7 @@ const emptyForm = (): BedPayload => ({
   ads_channel: 0,
   moisture_dry_raw: 17750,
   moisture_wet_raw: 7700,
+  sensor_disconnected_raw_threshold: 5000,
   watering_seconds: 120,
   auto_watering_block_after_cancel_seconds: 3600,
   enabled: true
@@ -61,14 +77,18 @@ function closeModal() {
   resetForm()
 }
 
-function moistureStatus(percent?: number) {
+function moistureStatus(reading?: MoistureReading) {
+  if (reading && !reading.is_valid) return { label: 'Sensor prüfen', color: 'bg-amber-100 text-amber-900' }
+  const percent = reading?.moisture_percent ?? undefined
   if (percent === undefined) return { label: 'keine Messung', color: 'bg-slate-100 text-slate-700' }
   if (percent < 35) return { label: 'trocken', color: 'bg-amber-100 text-amber-800' }
   if (percent > 75) return { label: 'nass', color: 'bg-blue-100 text-blue-800' }
   return { label: 'okay', color: 'bg-emerald-100 text-emerald-800' }
 }
 
-function moistureTone(percent?: number) {
+function moistureTone(reading?: MoistureReading) {
+  if (reading && !reading.is_valid) return { bar: 'bg-amber-500', icon: 'bg-amber-50 text-amber-800', accent: 'text-amber-800' }
+  const percent = reading?.moisture_percent ?? undefined
   if (percent === undefined) return { bar: 'bg-slate-400', icon: 'bg-slate-100 text-slate-500', accent: 'text-slate-700' }
   if (percent < 35) return { bar: 'bg-emerald-600', icon: 'bg-emerald-50 text-emerald-700', accent: 'text-emerald-700' }
   if (percent > 75) return { bar: 'bg-blue-600', icon: 'bg-blue-50 text-blue-700', accent: 'text-blue-700' }
@@ -94,6 +114,45 @@ function progressPercent(bed: Bed) {
   return Math.max(0, Math.min(100, ((planned - remaining) / planned) * 100))
 }
 
+function formatPercent(value?: number | null) {
+  return value === null || value === undefined ? '–' : value.toFixed(1)
+}
+
+function formatClock(value?: string | null) {
+  return value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '–'
+}
+
+function formatShortDuration(seconds?: number | null) {
+  const value = Math.max(0, seconds ?? 0)
+  if (value < 60) return `${value} s`
+  const minutes = Math.floor(value / 60)
+  const remainder = value % 60
+  return remainder ? `${minutes} min ${remainder} s` : `${minutes} min`
+}
+
+function chartPath(points: MoistureSeriesPoint[]) {
+  const valid = points.filter((point) => point.avg_moisture_percent !== null)
+  if (valid.length === 0) return ''
+  if (valid.length === 1) {
+    const y = 60 - (valid[0].avg_moisture_percent ?? 0) * 0.6
+    return `M0 ${y} L220 ${y}`
+  }
+  return valid
+    .map((point, index) => {
+      const x = (index / Math.max(1, valid.length - 1)) * 220
+      const y = 60 - Math.max(0, Math.min(100, point.avg_moisture_percent ?? 0)) * 0.6
+      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`
+    })
+    .join(' ')
+}
+
+function intervalX(run: IrrigationInterval) {
+  const started = new Date(run.started_at).getTime()
+  const end = Date.now()
+  const start = end - 24 * 60 * 60 * 1000
+  return Math.max(0, Math.min(220, ((started - start) / (end - start)) * 220))
+}
+
 function blockMessage(bed: Bed) {
   const remaining = bed.auto_watering_block_remaining_seconds
   if (!remaining || remaining <= 0) return ''
@@ -109,16 +168,34 @@ async function refreshCurrent() {
   }
 }
 
-async function refresh() {
-  error.value = ''
+async function refresh(options: { background?: boolean } = {}) {
+  if (!options.background) error.value = ''
   try {
-    const [bedData, latest, systemStatus] = await Promise.all([api.beds(), api.latestReadings(), api.status()])
+    const [bedData, latest, systemStatus, summaryData] = await Promise.all([
+      api.beds(),
+      api.latestReadings(),
+      api.status(),
+      api.summaryToday()
+    ])
+    const climateData = systemStatus.dht21_enabled ? await api.climateRead() : await api.climateLatest()
     beds.value = bedData
     readings.value = Object.fromEntries(latest.map((reading) => [reading.bed_id, reading]))
     status.value = systemStatus
+    climate.value = climateData
+    summary.value = summaryData
+    const chartPairs = await Promise.all(
+      bedData.map(async (bed) => {
+        const [bedSeries, bedIntervals] = await Promise.all([api.moistureSeries(bed.id), api.irrigationIntervals(bed.id)])
+        return [bed.id, bedSeries, bedIntervals] as const
+      })
+    )
+    series.value = Object.fromEntries(chartPairs.map(([id, bedSeries]) => [id, bedSeries]))
+    intervals.value = Object.fromEntries(chartPairs.map(([id, _bedSeries, bedIntervals]) => [id, bedIntervals]))
     await refreshCurrent()
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Unbekannter Fehler'
+    if (!options.background) {
+      error.value = err instanceof Error ? err.message : 'Unbekannter Fehler'
+    }
   } finally {
     loading.value = false
   }
@@ -173,6 +250,7 @@ function editBed(bed: Bed) {
     ads_channel: bed.ads_channel,
     moisture_dry_raw: bed.moisture_dry_raw,
     moisture_wet_raw: bed.moisture_wet_raw,
+    sensor_disconnected_raw_threshold: bed.sensor_disconnected_raw_threshold,
     watering_seconds: bed.watering_seconds,
     auto_watering_block_after_cancel_seconds: bed.auto_watering_block_after_cancel_seconds,
     enabled: bed.enabled
@@ -224,18 +302,19 @@ async function deleteCurrentBed() {
   }
 }
 
-onMounted(refresh)
+onMounted(() => refresh())
 onMounted(() => {
   currentTimer = window.setInterval(() => {
     void refreshCurrent()
-    if (currentIrrigation.value?.running) {
-      void refresh()
-    }
   }, 1000)
+  refreshTimer = window.setInterval(() => {
+    if (!saving.value) void refresh({ background: true })
+  }, 10000)
 })
 
 onUnmounted(() => {
   if (currentTimer) window.clearInterval(currentTimer)
+  if (refreshTimer) window.clearInterval(refreshTimer)
 })
 </script>
 
@@ -257,13 +336,9 @@ onUnmounted(() => {
               <span class="h-2.5 w-2.5 rounded-full bg-emerald-600" />
               {{ status?.bed_count ?? beds.length }} Beete
             </span>
-            <span class="inline-flex items-center gap-2 rounded-full bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700">
+            <span v-if="status?.hardware_mock" class="inline-flex items-center gap-2 rounded-full bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700">
               <span class="h-2.5 w-2.5 rounded-full border-[3px] border-blue-600 bg-white" />
-              Mock {{ status?.hardware_mock ? 'aktiv' : 'aus' }}
-            </span>
-            <span class="inline-flex items-center gap-2 rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-600">
-              <span class="h-2.5 w-2.5 rounded-full bg-slate-400" />
-              MQTT {{ status?.mqtt_enabled ? (status.mqtt_connected ? 'verbunden' : 'aktiv') : 'aus' }}
+              Mock aktiv
             </span>
           </div>
         </div>
@@ -281,7 +356,7 @@ onUnmounted(() => {
             </svg>
             <span class="truncate">Einstellungen</span>
           </button>
-          <button class="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 shadow-sm transition hover:border-emerald-300 hover:text-emerald-700" @click="refresh">
+          <button class="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-900 shadow-sm transition hover:border-emerald-300 hover:text-emerald-700" @click="() => refresh()">
             <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.45 5h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h8V3l-3.35 3.35Z" />
             </svg>
@@ -293,17 +368,50 @@ onUnmounted(() => {
       <div v-if="error" class="mb-5 rounded-lg border border-red-200 bg-red-50 px-5 py-4 text-sm font-semibold text-red-800">{{ error }}</div>
       <div v-if="statusMessage" class="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-800">{{ statusMessage }}</div>
 
+      <section v-if="!loading" class="mb-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+        <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+          <p class="text-sm font-bold text-slate-500">Klima</p>
+          <p class="mt-2 text-2xl font-black text-slate-950">
+            {{ formatPercent(climate?.temperature_c) }} °C · {{ formatPercent(climate?.humidity_percent) }} %
+          </p>
+          <p class="mt-2 text-sm font-semibold" :class="climate?.is_valid ? 'text-slate-500' : 'text-amber-800'">
+            {{ climate?.is_valid ? `Letzte Messung: ${formatClock(climate?.created_at)}` : climate?.error_message || 'Sensor nicht bereit' }}
+          </p>
+        </div>
+        <div class="rounded-lg border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p class="text-sm font-bold text-slate-500">Heute</p>
+              <p class="mt-2 text-2xl font-black text-slate-950">{{ summary?.irrigation_count ?? 0 }} Bewässerungen · {{ formatShortDuration(summary?.total_duration_seconds) }}</p>
+            </div>
+            <div class="text-sm font-semibold text-slate-500 sm:text-right">
+              <p>Hardware: {{ status?.hardware_mock ? 'Mock aktiv' : 'Realbetrieb' }}</p>
+              <p>MQTT: {{ status?.mqtt_enabled ? (status.mqtt_connected ? 'verbunden' : 'aktiv') : 'optional aus' }}</p>
+            </div>
+          </div>
+          <div class="mt-4 grid gap-2 sm:grid-cols-3">
+            <div v-for="bedSummary in summary?.beds ?? []" :key="bedSummary.bed_id" class="rounded-md bg-slate-50 px-3 py-2">
+              <p class="truncate text-sm font-extrabold text-slate-900">{{ bedSummary.bed_name }}</p>
+              <p class="mt-1 text-xs font-semibold text-slate-500">
+                {{ formatShortDuration(bedSummary.total_duration_seconds) }} · Ø {{ formatPercent(bedSummary.moisture_avg) }}%
+              </p>
+              <p v-if="bedSummary.sensor_warning_count" class="mt-1 text-xs font-bold text-amber-800">{{ bedSummary.sensor_warning_count }} Sensorwarnung(en)</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <p v-if="loading" class="py-16 text-center text-slate-500">Lade Beete...</p>
       <section v-else class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))] gap-4 lg:gap-5">
         <article
           v-for="bed in beds"
           :key="bed.id"
           class="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.05)] transition sm:p-5"
-          :class="isBedWatering(bed) ? 'border-emerald-200 bg-emerald-50/30 shadow-[0_18px_48px_rgba(22,163,74,0.12)]' : ''"
+          :class="[isBedWatering(bed) ? 'border-emerald-200 bg-emerald-50/30 shadow-[0_18px_48px_rgba(22,163,74,0.12)]' : '', readings[bed.id]?.is_valid === false ? 'border-amber-200 bg-amber-50/20' : '']"
         >
           <div class="mb-5 flex items-start justify-between gap-3">
             <div class="flex min-w-0 items-start gap-3">
-              <span class="grid h-11 w-11 shrink-0 place-items-center rounded-full" :class="moistureTone(readings[bed.id]?.moisture_percent).icon">
+              <span class="grid h-11 w-11 shrink-0 place-items-center rounded-full" :class="moistureTone(readings[bed.id]).icon">
                 <svg class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <path d="M17.75 3.03c-5.36.51-9.13 3.06-10.9 7.34C5.2 10.65 4 12.06 4 13.75 4 15.54 5.46 17 7.25 17c1.69 0 3.1-1.2 3.38-2.85 4.28-1.77 6.83-5.54 7.34-10.9l.22-.22h-.44ZM7.25 15A1.25 1.25 0 1 1 8.5 13.75 1.25 1.25 0 0 1 7.25 15Zm3.19-2.92-1.52-1.52c1.2-2.31 3.26-3.93 6.16-4.84-.91 2.9-2.53 4.96-4.64 6.36Z" />
                 </svg>
@@ -314,8 +422,8 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="flex shrink-0 items-center gap-2">
-              <span class="rounded-full px-3 py-1.5 text-xs font-extrabold" :class="moistureStatus(readings[bed.id]?.moisture_percent).color">
-                {{ moistureStatus(readings[bed.id]?.moisture_percent).label }}
+              <span class="rounded-full px-3 py-1.5 text-xs font-extrabold" :class="moistureStatus(readings[bed.id]).color">
+                {{ moistureStatus(readings[bed.id]).label }}
               </span>
               <button class="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:text-emerald-700" aria-label="Beet-Einstellungen" title="Beet-Einstellungen" @click="editBed(bed)">
                 <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -327,11 +435,13 @@ onUnmounted(() => {
 
           <section class="mb-5 min-w-0">
             <p class="text-4xl font-black tracking-tight text-slate-950">
-              {{ readings[bed.id]?.moisture_percent ?? '–' }}<span class="text-xl font-extrabold">%</span>
+              {{ readings[bed.id]?.is_valid === false ? '–' : readings[bed.id]?.moisture_percent ?? '–' }}<span class="text-xl font-extrabold">%</span>
             </p>
-            <p class="mt-3 text-sm font-semibold text-slate-500">Bodenfeuchte</p>
+            <p class="mt-3 text-sm font-semibold" :class="readings[bed.id]?.is_valid === false ? 'text-amber-800' : 'text-slate-500'">
+              {{ readings[bed.id]?.is_valid === false ? 'Sensor prüfen · Rohwert ungewöhnlich niedrig' : 'Bodenfeuchte' }}
+            </p>
             <div class="mt-2 h-2 rounded-full bg-slate-100">
-              <div class="h-2 rounded-full transition-all" :class="moistureTone(readings[bed.id]?.moisture_percent).bar" :style="{ width: `${Math.min(100, Math.max(0, readings[bed.id]?.moisture_percent ?? 0))}%` }" />
+              <div class="h-2 rounded-full transition-all" :class="moistureTone(readings[bed.id]).bar" :style="{ width: `${Math.min(100, Math.max(0, readings[bed.id]?.moisture_percent ?? 0))}%` }" />
             </div>
             <div class="mt-2 flex justify-between text-xs font-semibold text-slate-500">
               <span>0%</span>
@@ -342,7 +452,31 @@ onUnmounted(() => {
               Rohwert {{ readings[bed.id]?.raw_value ?? '–' }} · {{ readings[bed.id]?.voltage?.toFixed(2) ?? '–' }} V · Letzte Messung
               {{ readings[bed.id]?.created_at ? new Date(readings[bed.id].created_at).toLocaleString() : 'ausstehend' }}
             </p>
+            <p v-if="readings[bed.id]?.warning_message" class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-bold text-amber-900">{{ readings[bed.id]?.warning_message }}</p>
             <p v-if="blockMessage(bed)" class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">{{ blockMessage(bed) }}</p>
+          </section>
+
+          <section class="mb-5 border-t border-slate-200 pt-5">
+            <div class="mb-3 flex items-center justify-between gap-3">
+              <p class="text-sm font-extrabold text-slate-900">24h-Verlauf</p>
+              <p class="text-xs font-semibold text-slate-500">5-Minuten-Mittel</p>
+            </div>
+            <svg class="h-20 w-full overflow-visible" viewBox="0 0 220 70" preserveAspectRatio="none" role="img" aria-label="Feuchteverlauf">
+              <path d="M0 60H220" stroke="#e2e8f0" stroke-width="1" />
+              <path d="M0 30H220" stroke="#e2e8f0" stroke-width="1" />
+              <path d="M0 0H220" stroke="#e2e8f0" stroke-width="1" />
+              <rect
+                v-for="run in intervals[bed.id] ?? []"
+                :key="`${run.started_at}-${run.status}`"
+                :x="intervalX(run)"
+                y="0"
+                width="2.5"
+                height="60"
+                fill="#60a5fa"
+                opacity="0.35"
+              />
+              <path v-if="chartPath(series[bed.id] ?? [])" :d="chartPath(series[bed.id] ?? [])" fill="none" stroke="#059669" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
           </section>
 
           <dl class="mb-5 grid grid-cols-3 gap-3 border-t border-slate-200 pt-5">
@@ -469,6 +603,7 @@ onUnmounted(() => {
           </div>
           <label class="text-sm font-medium">Trocken raw<input v-model.number="form.moisture_dry_raw" required type="number" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
           <label class="text-sm font-medium">Nass raw<input v-model.number="form.moisture_wet_raw" required type="number" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
+          <label class="text-sm font-medium">Sensorwarnung unter raw<input v-model.number="form.sensor_disconnected_raw_threshold" required min="0" type="number" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
           <label class="flex items-center gap-2 text-sm font-medium sm:col-span-2">
             <input v-model="form.enabled" type="checkbox" class="h-4 w-4 rounded" /> Aktiv
           </label>

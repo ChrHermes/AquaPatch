@@ -1,10 +1,12 @@
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import desc, select
+from sqlalchemy import Integer, desc, func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models import Bed, MoistureReading
-from app.schemas import MoistureReadingRead
+from app.schemas import MoistureReadingRead, MoistureSeriesPoint
 from app.services.registry import moisture_service
 
 router = APIRouter(prefix="/api", tags=["moisture"])
@@ -44,3 +46,44 @@ def list_readings(
     if bed_id is not None:
         statement = statement.where(MoistureReading.bed_id == bed_id)
     return list(db.scalars(statement).all())
+
+
+@router.get("/beds/{bed_id}/moisture/series", response_model=list[MoistureSeriesPoint])
+def moisture_series(
+    bed_id: int,
+    range: str = Query(default="24h", pattern="^(6h|24h|today)$"),
+    bucket: str = Query(default="1m", pattern="^(1m|5m)$"),
+    db: Session = Depends(get_db),
+) -> list[MoistureSeriesPoint]:
+    if db.get(Bed, bed_id) is None:
+        raise HTTPException(status_code=404, detail="Beet wurde nicht gefunden")
+    now = datetime.utcnow()
+    if range == "today":
+        start = datetime.combine(now.date(), datetime.min.time())
+    else:
+        hours = 6 if range == "6h" else 24
+        start = now - timedelta(hours=hours)
+    bucket_seconds = 300 if bucket == "5m" else 60
+    bucket_expr = (func.strftime("%s", MoistureReading.created_at) / bucket_seconds).cast(Integer) * bucket_seconds
+    rows = db.execute(
+        select(
+            bucket_expr.label("bucket_ts"),
+            func.avg(MoistureReading.moisture_percent),
+            func.avg(MoistureReading.raw_value),
+        )
+        .where(
+            MoistureReading.bed_id == bed_id,
+            MoistureReading.created_at >= start,
+            MoistureReading.is_valid.is_(True),
+        )
+        .group_by(bucket_expr)
+        .order_by(bucket_expr)
+    ).all()
+    return [
+        MoistureSeriesPoint(
+            timestamp=datetime.utcfromtimestamp(int(row[0])),
+            avg_moisture_percent=round(row[1], 1) if row[1] is not None else None,
+            avg_raw_value=round(row[2], 1) if row[2] is not None else None,
+        )
+        for row in rows
+    ]

@@ -17,6 +17,7 @@ The current implementation includes a FastAPI backend, SQLite database, Vue 3 fr
 - Relay cleanup on shutdown and `finally` pump-off behavior after watering.
 - Optional MQTT publishing for moisture, pump and system state.
 - Vue dashboard with clean bed cards, Material Design SVG icons, compact app controls, manual watering, moisture reads and modal settings for beds and app status.
+- Raspberry Pi deployment scripts for rsync-based deploy, preflight setup and systemd service installation.
 
 Planned:
 - Automatic watering schedules.
@@ -58,6 +59,7 @@ backend/
   systemd/
 frontend/
   src/
+scripts/
 README.md
 CHANGELOG.md
 ```
@@ -108,6 +110,8 @@ The Vite dev server proxies `/api` to `http://localhost:8000`. Build production 
 ```bash
 npm run build
 ```
+
+When `frontend/dist` exists, the FastAPI backend serves the production dashboard from `http://localhost:8000/`. This keeps the Raspberry Pi deployment simple and avoids a separate nginx service.
 
 Dashboard usage:
 
@@ -189,18 +193,80 @@ Typical wiring:
 - Relay inputs to Pi `GPIO17`, `GPIO27`, `GPIO22`.
 - Pumps in the separate 24 V relay load circuit.
 
-## systemd Backend Deployment
+## Raspberry Pi Deployment
 
-Copy the project to `/opt/aquapatch`, create `backend/.env`, install dependencies into `/opt/aquapatch/backend/.venv`, then install the unit:
+Target deployment configured for the current local Pi:
+
+- Host: `aquapatch` (`192.168.178.97` in local hosts)
+- SSH user: `christopher`
+- SSH key: `/Users/christopher/.ssh/id_ed25519`
+- Remote directory: `/home/christopher/aquapatch`
+- Service: `aquapatch-backend`
+- URL after deployment: `http://aquapatch:8000`
+
+Deploy from this machine with rsync:
 
 ```bash
-sudo cp backend/systemd/aquapatch-backend.service /etc/systemd/system/
+scripts/deploy-pi.sh
+```
+
+The deploy script syncs the repository to the Pi, excluding local virtualenvs, `node_modules`, built frontend files, local `.env` files and SQLite databases. It then runs the Pi setup script remotely:
+
+```bash
+scripts/setup-pi.sh
+```
+
+The setup script performs a small preflight, installs required apt packages, creates `backend/.venv`, installs Python dependencies, creates `backend/.env` if missing, builds the frontend and installs the systemd unit. If `ufw` is installed and active, it also allows `8000/tcp` for AquaPatch.
+
+For first hardware testing, deploy with real hardware mode:
+
+```bash
+scripts/deploy-pi.sh --real-hardware
+```
+
+Without `--real-hardware`, a newly created Pi `.env` keeps `HARDWARE_MOCK=true` for safety. This lets the service start and the dashboard load before any relay can switch a pump. If `backend/.env` already exists on the Pi, the setup script preserves it.
+
+Useful service commands on the Pi:
+
+```bash
+sudo systemctl status aquapatch-backend
+sudo journalctl -u aquapatch-backend -f
+sudo systemctl restart aquapatch-backend
+```
+
+Manual setup on the Pi, if rsync deployment is skipped:
+
+```bash
+cd /home/christopher/aquapatch
+bash scripts/setup-pi.sh
+```
+
+The systemd unit is installed from:
+
+```bash
+backend/systemd/aquapatch-backend.service
+```
+
+It runs:
+
+```text
+/home/christopher/aquapatch/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+and reads configuration from:
+
+```text
+/home/christopher/aquapatch/backend/.env
+```
+
+If you need to install the unit manually:
+
+```bash
+sudo cp backend/systemd/aquapatch-backend.service /etc/systemd/system/aquapatch-backend.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now aquapatch-backend
 sudo systemctl status aquapatch-backend
 ```
-
-For the frontend, build with `npm run build` and serve `frontend/dist` with nginx or another local static file server.
 
 ## MQTT and Home Assistant Readiness
 

@@ -12,6 +12,10 @@
 - Irrigation current-status API with remaining runtime and elapsed runtime.
 - Manual irrigation cancellation endpoints for a specific bed and the current run.
 - Per-bed automatic watering pause after manual cancellation.
+- Raspberry Pi rsync deployment script for host `aquapatch`.
+- Raspberry Pi preflight/setup script for apt packages, backend venv, frontend build and systemd service installation.
+- FastAPI production frontend serving from `frontend/dist`.
+- Optional `ufw` opening for `8000/tcp` during Pi setup when `ufw` is active.
 
 ### Changed
 - Simplified the dashboard so bed and app settings open in overlays instead of appearing permanently on the main page.
@@ -21,9 +25,12 @@
 - Irrigation locking is global again: only one pump can run at a time.
 - MQTT publishing now includes irrigation remaining/elapsed seconds, status, cancellation and automatic watering block topics.
 - Reworked the dashboard layout to match the provided clean card-based reference design more closely.
+- Updated the systemd service for `/home/christopher/aquapatch` and user `christopher`.
+- Updated deployment documentation for the local Pi at `aquapatch`.
 
 ### Implementation Notes
 - Mock mode defaults to `HARDWARE_MOCK=true` so development does not require Raspberry Pi hardware.
 - Hardware access is isolated in `backend/app/hardware` and service classes; API routes do not toggle GPIO directly.
 - Moisture percentage maps each bed's dry calibration value to 0 percent and wet calibration value to 100 percent, including inverted raw ranges.
 - A global async irrigation lock prevents concurrent pump operation; cancellation sets an event that causes the watering loop to exit and the relay to be switched off in `finally`.
+- Pi setup keeps `HARDWARE_MOCK=true` by default on newly created `.env` files so first service startup is safe; pass `--real-hardware` when the relay and ADS1115 wiring has been verified.

@@ -59,6 +59,6 @@ echo "Open: http://${FRONTEND_HOST}:${FRONTEND_PORT}"
 echo "Press Ctrl+C to stop both servers."
 (
   cd "${ROOT_DIR}/frontend"
-  npm run dev -- --host "${FRONTEND_HOST}" --port "${FRONTEND_PORT}"
-  # npm run dev -- --host --port "${FRONTEND_PORT}"
+  # npm run dev -- --host "${FRONTEND_HOST}" --port "${FRONTEND_PORT}"
+  npm run dev -- --host --port "${FRONTEND_PORT}"
 )

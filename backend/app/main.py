@@ -1,8 +1,11 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, select, text
 
 from app.api import beds, irrigation, moisture, system
@@ -81,7 +84,17 @@ app.include_router(moisture.router)
 app.include_router(irrigation.router)
 app.include_router(system.router)
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
+FRONTEND_ASSETS = FRONTEND_DIST / "assets"
 
-@app.get("/")
-def root() -> dict[str, str]:
+if FRONTEND_ASSETS.exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_ASSETS), name="assets")
+
+
+@app.get("/", response_model=None)
+def root() -> dict[str, str] | FileResponse:
+    index_file = FRONTEND_DIST / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
     return {"name": "AquaPatch", "status": "ok"}

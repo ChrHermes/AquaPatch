@@ -1,16 +1,17 @@
 [Unit]
 Description=AquaPatch FastAPI Backend
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/aquapatch/backend
-EnvironmentFile=/opt/aquapatch/backend/.env
-ExecStart=/opt/aquapatch/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+WorkingDirectory=/home/christopher/aquapatch/backend
+EnvironmentFile=/home/christopher/aquapatch/backend/.env
+ExecStart=/home/christopher/aquapatch/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=on-failure
 RestartSec=5
-User=pi
-Group=pi
+User=christopher
+Group=christopher
 
 [Install]
 WantedBy=multi-user.target

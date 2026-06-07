@@ -35,9 +35,9 @@ Initial target hardware:
 
 - Raspberry Pi 4.
 - ADS1115 connected by I2C.
-- Optional DHT21/AM2301 on a configurable GPIO pin.
+- DHT21/AM2301 on GPIO4.
 - Capacitive Soil Moisture Sensor v1.2 on ADS1115 channels A0, A1 and A2.
-- Relay channels on GPIO17, GPIO27 and GPIO22.
+- Relay channels on GPIO27, GPIO21, GPIO13 and reserve relay GPIO26.
 - Three 24 V DC pumps switched in the external load circuit.
 
 Important safety notes:
@@ -136,6 +136,8 @@ Dashboard usage:
 | `DATABASE_URL` | `sqlite:///./aquapatch.db` | SQLite database URL. |
 | `HARDWARE_MOCK` | `true` | Enables simulated ADS1115 and relay logging. |
 | `RELAY_ACTIVE_LOW` | `true` | Uses active-low relay logic when true. |
+| `RELAY_GPIO_PINS` | `27,21,13,26` | Comma-separated GPIO pins allowed for relay-controlled beds. |
+| `RELAY_RESERVE_PINS` | `26` | Relay GPIOs initialized and switched off at startup even when no bed uses them yet. |
 | `MAX_WATERING_SECONDS` | `300` | Upper limit for any watering run. |
 | `MQTT_ENABLED` | `false` | Enables optional MQTT integration. |
 | `MQTT_HOST` | `localhost` | MQTT broker host. |
@@ -143,7 +145,7 @@ Dashboard usage:
 | `MQTT_USERNAME` | empty | Optional MQTT username. |
 | `MQTT_PASSWORD` | empty | Optional MQTT password. |
 | `MQTT_BASE_TOPIC` | `garden_irrigation` | Base topic for MQTT publishing. |
-| `DHT21_ENABLED` | `false` | Enables optional DHT21 climate readings. |
+| `DHT21_ENABLED` | `true` | Enables DHT21 climate readings. |
 | `DHT21_GPIO_PIN` | `4` | GPIO pin used for the DHT21 data line. |
 
 ## API Overview
@@ -204,15 +206,18 @@ sudo apt install -y i2c-tools
 i2cdetect -y 1
 ```
 
-Typical wiring:
+Current wiring:
 
 - ADS1115 `VDD` to Pi `3.3 V`.
 - ADS1115 `GND` to Pi `GND`.
 - ADS1115 `SCL` to Pi `GPIO3/SCL`.
 - ADS1115 `SDA` to Pi `GPIO2/SDA`.
 - Moisture sensor analog outputs to ADS1115 `A0`, `A1`, `A2`.
-- Optional DHT21 data pin to configured GPIO, default `GPIO4`.
-- Relay inputs to Pi `GPIO17`, `GPIO27`, `GPIO22`.
+- DHT21 data pin to Pi `GPIO4`.
+- Relay 1 / pump 1 input to Pi `GPIO27`.
+- Relay 2 / pump 2 input to Pi `GPIO21`.
+- Relay 3 / pump 3 input to Pi `GPIO13`.
+- Relay 4 reserve input to Pi `GPIO26`.
 - Pumps in the separate 24 V relay load circuit.
 
 Default moisture calibration for new beds:
@@ -230,9 +235,20 @@ Moisture sensor plausibility:
 
 Climate readings:
 
-- `DHT21_ENABLED=false` keeps the DHT21 optional.
+- `DHT21_ENABLED=true` enables the connected DHT21 on GPIO4.
 - In mock mode, DHT21 readings are simulated between `21.0` and `30.0 °C` and `45.0` to `85.0 %` relative humidity.
+- Real DHT21 reads retry short transient buffer failures before storing an invalid reading.
 - Climate readings are stored in SQLite and included in the daily summary when available.
+
+Relay pin assignment:
+
+- Pump 1 / relay 1: `GPIO27`, ADS1115 `A0`.
+- Pump 2 / relay 2: `GPIO21`, ADS1115 `A1`.
+- Pump 3 / relay 3: `GPIO13`, ADS1115 `A2`.
+- Reserve / relay 4: `GPIO26`, initialized off at startup.
+- DHT21 data: `GPIO4`.
+
+Existing installations with the previous default relay mapping are migrated on backend startup when ADS channels still use the old default pins. Custom bed assignments are left unchanged if a target pin is already occupied.
 
 ## Raspberry Pi Deployment
 
@@ -265,7 +281,7 @@ For first hardware testing, deploy with real hardware mode:
 scripts/deploy-pi.sh --real-hardware
 ```
 
-Without `--real-hardware`, a newly created Pi `.env` keeps `HARDWARE_MOCK=true` for safety. This lets the service start and the dashboard load before any relay can switch a pump. If `backend/.env` already exists on the Pi, the setup script preserves it.
+Without `--real-hardware`, a newly created Pi `.env` keeps `HARDWARE_MOCK=true` for safety. This lets the service start and the dashboard load before any relay can switch a pump. If `backend/.env` already exists on the Pi, the setup script preserves unrelated values, but always ensures the current relay pin mapping and DHT21 GPIO settings are present. With `--real-hardware`, it also sets `HARDWARE_MOCK=false`.
 
 Useful service commands on the Pi:
 

@@ -45,6 +45,17 @@ require_command() {
   fi
 }
 
+upsert_env() {
+  local key="$1"
+  local value="$2"
+  local file="backend/.env"
+  if grep -q "^${key}=" "$file"; then
+    sed -i "s/^${key}=.*/${key}=${value}/" "$file"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$file"
+  fi
+}
+
 if [[ ! -d "$APP_DIR/backend" || ! -d "$APP_DIR/frontend" ]]; then
   echo "APP_DIR does not look like an AquaPatch checkout: $APP_DIR" >&2
   exit 1
@@ -89,12 +100,17 @@ backend/.venv/bin/pip install -r backend/requirements.txt
 
 if [[ ! -f backend/.env ]]; then
   cp backend/.env.example backend/.env
-  if [[ "$REAL_HARDWARE" == "true" ]]; then
-    sed -i 's/^HARDWARE_MOCK=.*/HARDWARE_MOCK=false/' backend/.env
-  fi
   echo "Created backend/.env. Review relay polarity and MQTT settings before hardware testing."
 else
   echo "Keeping existing backend/.env"
+fi
+
+upsert_env RELAY_GPIO_PINS "27,21,13,26"
+upsert_env RELAY_RESERVE_PINS "26"
+upsert_env DHT21_ENABLED "true"
+upsert_env DHT21_GPIO_PIN "4"
+if [[ "$REAL_HARDWARE" == "true" ]]; then
+  upsert_env HARDWARE_MOCK "false"
 fi
 
 echo "Building frontend"

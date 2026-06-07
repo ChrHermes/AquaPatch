@@ -22,6 +22,7 @@ class GpioController:
             import RPi.GPIO as GPIO  # type: ignore[import-not-found]
 
             self._gpio = GPIO
+            GPIO.setwarnings(False)
             GPIO.setmode(GPIO.BCM)
             for pin in pins:
                 GPIO.setup(pin, GPIO.OUT)

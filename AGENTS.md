@@ -101,6 +101,21 @@ If `CHANGELOG.md` does not exist yet, create it once the first meaningful implem
 
 ## Development Principles
 
+### Target: Raspberry Pi
+
+The primary deployment target for AquaPatch is a Raspberry Pi reachable in the local network.
+
+### Host
+
+```text
+Hostname: aquapatch
+IP address: 192.168.178.97
+SSH user: christopher
+Remote project directory: /home/christopher/aquapatch
+SSH key: /Users/christopher/.ssh/id_ed25519
+Host password: hermes90
+```
+
 ### Keep the System Standalone
 
 The application must work without:

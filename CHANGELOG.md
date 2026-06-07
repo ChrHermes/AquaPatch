@@ -22,6 +22,7 @@
 - Daily summary API with per-bed watering, moisture and sensor-warning totals.
 - Moisture series and irrigation interval APIs for lightweight dashboard charts.
 - Dashboard climate display, daily summary section, sensor warnings and 24h moisture mini charts.
+- Configurable relay pin allowlist and reserve relay initialization for the current GPIO wiring.
 
 ### Changed
 - Raspberry Pi deployment now serves the frontend through Nginx on HTTP port `80` so `http://aquapatch/` works without a port suffix.
@@ -43,9 +44,14 @@
 - Default first-start beds now match the project defaults: `Hochbeet 1`, `Tomaten`, `Blumen`.
 - MQTT publishing now includes climate and moisture sensor status topics.
 - Sensor disconnected threshold default is now `5000`.
+- Relay assignment now uses IO27 for pump 1, IO21 for pump 2, IO13 for pump 3 and IO26 as reserve relay.
+- DHT21 is enabled by default on IO4 for the connected hardware.
+- Pi setup now ensures relay pin, reserve relay and DHT21 settings are updated in an existing `backend/.env`; `--real-hardware` sets `HARDWARE_MOCK=false`.
 
 ### Fixed
 - Background refresh no longer clears and redraws visible error messages on every interval.
+- Relay shutdown now continues turning off remaining pins if one GPIO channel reports a cleanup error.
+- DHT21 reads now retry short transient buffer failures before storing an invalid reading.
 
 ### Implementation Notes
 - Mock mode defaults to `HARDWARE_MOCK=true` so development does not require Raspberry Pi hardware.
@@ -54,3 +60,4 @@
 - Moisture readings below `sensor_disconnected_raw_threshold` are stored as invalid with warning metadata so they are not treated as normal percentages.
 - A global async irrigation lock prevents concurrent pump operation; cancellation sets an event that causes the watering loop to exit and the relay to be switched off in `finally`.
 - Pi setup keeps `HARDWARE_MOCK=true` by default on newly created `.env` files so first service startup is safe; pass `--real-hardware` when the relay and ADS1115 wiring has been verified.
+- Relay GPIO26 is configured as a reserve output so it is switched off during startup and shutdown even before a fourth bed is added.

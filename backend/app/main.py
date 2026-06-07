@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, select, text
+from sqlalchemy.orm import Session
 
 from app.api import beds, climate, irrigation, moisture, summary, system
 from app.core.database import Base, SessionLocal, engine
@@ -17,10 +18,16 @@ from app.services.registry import climate_service, irrigation_service, moisture_
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 DEFAULT_BEDS = [
-    {"name": "Tomaten", "relay_pin": 17, "ads_channel": 0, "watering_seconds": 120},
-    {"name": "Hortensien 1", "relay_pin": 27, "ads_channel": 1, "watering_seconds": 90},
-    {"name": "Hortensien 2", "relay_pin": 22, "ads_channel": 2, "watering_seconds": 90},
+    {"name": "Hochbeet 1", "relay_pin": 27, "ads_channel": 0, "watering_seconds": 120},
+    {"name": "Tomaten", "relay_pin": 21, "ads_channel": 1, "watering_seconds": 120},
+    {"name": "Blumen", "relay_pin": 13, "ads_channel": 2, "watering_seconds": 90},
 ]
+
+RELAY_PIN_MIGRATION_BY_ADS_CHANNEL = {
+    0: {"old": {17}, "new": 27},
+    1: {"old": {27}, "new": 21},
+    2: {"old": {22}, "new": 13},
+}
 
 
 def create_tables_and_seed() -> None:
@@ -33,6 +40,37 @@ def create_tables_and_seed() -> None:
                 db.add(Bed(**item))
             db.commit()
             system_service.log_event(db, "info", "startup", "Default-Beete wurden angelegt")
+        else:
+            migrate_default_relay_pins(db)
+
+
+def migrate_default_relay_pins(db: Session) -> None:
+    beds = db.scalars(select(Bed)).all()
+    candidates = [
+        bed
+        for bed in beds
+        if bed.ads_channel in RELAY_PIN_MIGRATION_BY_ADS_CHANNEL
+        and bed.relay_pin in RELAY_PIN_MIGRATION_BY_ADS_CHANNEL[bed.ads_channel]["old"]
+    ]
+    if not candidates:
+        return
+
+    candidate_ids = {bed.id for bed in candidates}
+    target_pins = {int(config["new"]) for config in RELAY_PIN_MIGRATION_BY_ADS_CHANNEL.values()}
+    blocking_beds = [bed for bed in beds if bed.id not in candidate_ids and bed.relay_pin in target_pins]
+    if blocking_beds:
+        names = ", ".join(f"{bed.name} GPIO{bed.relay_pin}" for bed in blocking_beds)
+        system_service.log_event(db, "warning", "startup", f"Relay-Pin-Migration übersprungen; Zielpins sind bereits belegt: {names}")
+        return
+
+    for bed in candidates:
+        bed.relay_pin = -100 - bed.ads_channel
+    db.commit()
+
+    for bed in candidates:
+        bed.relay_pin = int(RELAY_PIN_MIGRATION_BY_ADS_CHANNEL[bed.ads_channel]["new"])
+    db.commit()
+    system_service.log_event(db, "info", "startup", "Relay-Pins auf IO27, IO21 und IO13 migriert")
 
 
 def ensure_schema_columns() -> None:

@@ -262,7 +262,7 @@ function newBed() {
   resetForm()
   const usedPins = new Set(beds.value.map((bed) => bed.relay_pin))
   const usedChannels = new Set(beds.value.map((bed) => bed.ads_channel))
-  const nextPin = [17, 27, 22, 5, 6, 13, 19, 26].find((pin) => !usedPins.has(pin)) ?? 0
+  const nextPin = [27, 21, 13, 26].find((pin) => !usedPins.has(pin)) ?? 0
   const nextChannel = [0, 1, 2, 3].find((channel) => !usedChannels.has(channel)) ?? 0
   form.relay_pin = nextPin
   form.ads_channel = nextChannel

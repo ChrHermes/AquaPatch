@@ -1,3 +1,5 @@
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -6,13 +8,16 @@ from app.hardware.gpio import GpioController
 from app.models import Bed
 
 
+logger = logging.getLogger(__name__)
+
+
 class RelayService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.controller = GpioController(mock=settings.hardware_mock, active_low=settings.relay_active_low)
 
     def setup(self, db: Session) -> None:
-        pins = [bed.relay_pin for bed in db.scalars(select(Bed)).all()]
+        pins = sorted({bed.relay_pin for bed in db.scalars(select(Bed)).all()} | set(self.settings.reserve_pin_list))
         self.controller.setup(pins)
         self.turn_all_off()
 
@@ -24,7 +29,10 @@ class RelayService:
 
     def turn_all_off(self) -> None:
         for pin in list(self.controller._states):
-            self.controller.write(pin, False)
+            try:
+                self.controller.write(pin, False)
+            except Exception:
+                logger.exception("Failed to turn off relay pin %s", pin)
 
     def get_state(self, bed: Bed) -> bool:
         return self.controller.get_state(bed.relay_pin)

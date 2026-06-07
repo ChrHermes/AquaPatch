@@ -1,5 +1,6 @@
 import logging
 import random
+import time
 
 
 logger = logging.getLogger(__name__)
@@ -37,12 +38,23 @@ class Dht21Reader:
             return round(random.uniform(21.0, 30.0), 1), round(random.uniform(45.0, 85.0), 1), None
         if self._device is None:
             return None, None, "DHT21 ist nicht initialisiert"
-        try:
-            temperature = getattr(self._device, "temperature")
-            humidity = getattr(self._device, "humidity")
-            if temperature is None or humidity is None:
-                return None, None, "DHT21 hat keinen Messwert geliefert"
-            return round(float(temperature), 1), round(float(humidity), 1), None
-        except Exception as exc:
-            logger.exception("DHT21 read failed")
-            return None, None, str(exc)
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                temperature = getattr(self._device, "temperature")
+                humidity = getattr(self._device, "humidity")
+                if temperature is None or humidity is None:
+                    return None, None, "DHT21 hat keinen Messwert geliefert"
+                return round(float(temperature), 1), round(float(humidity), 1), None
+            except RuntimeError as exc:
+                last_error = exc
+                if attempt < 2:
+                    logger.warning("DHT21 read attempt %s failed: %s", attempt + 1, exc)
+                    time.sleep(2)
+                    continue
+            except Exception as exc:
+                logger.exception("DHT21 read failed")
+                return None, None, str(exc)
+        message = str(last_error) if last_error else "DHT21 konnte nicht gelesen werden"
+        logger.warning("DHT21 read failed after retries: %s", message)
+        return None, None, message
